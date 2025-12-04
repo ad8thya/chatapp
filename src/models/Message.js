@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const S = mongoose.Schema;
 
 const MessageSchema = new S({
-  conversationId: { type: String, required: true },
+  conversationId: { type: S.Types.ObjectId, ref: 'Conversation', required: true },
   fromUserId: { type: S.Types.ObjectId, ref: 'User' },
   fromEmail: String,
   ciphertext: String,

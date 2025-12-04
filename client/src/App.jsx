@@ -1,8 +1,26 @@
-
+// client/src/App.jsx
 import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Login from './pages/Login';
+import Register from './pages/Register';
 import Chat from './pages/Chat';
+import Conversations from './pages/Conversations'; // <- ADD THIS LINE
 
-export default function App() {
-  // change conversationId if you want multiple rooms
-  return <Chat conversationId="room1" />;
+// small auth helper
+const isAuthed = () => {
+  try { return !!localStorage.getItem('TOKEN'); } catch { return false; }
+};
+
+export default function App(){
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={ isAuthed() ? <Navigate to="/conversations" replace /> : <Navigate to="/login" replace /> } />
+        <Route path="/login" element={ <Login /> } />
+        <Route path="/register" element={ <Register /> } />
+        <Route path="/conversations" element={ isAuthed() ? <Conversations /> : <Navigate to="/login" replace /> } />
+        <Route path="/chat/:conversationId" element={ isAuthed() ? <Chat /> : <Navigate to="/login" replace /> } />
+      </Routes>
+    </Router>
+  );
 }

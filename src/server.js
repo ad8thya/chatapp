@@ -8,13 +8,19 @@ const cookieParser = require('cookie-parser');
 const Message = require('./models/Message'); // require at top
 const authRoutes = require('./routes/auth');
 const { verifyToken } = require('./utils/jwt');
+// server.js (or src/server.js)
+const convRoutes = require('./routes/conversations');
+
+
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+app.use('/api/conversations', require('./routes/conversations'));
 app.use(cookieParser());
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/auth', authRoutes);
+app.use('/api/conversations', require('./routes/conversations'));
 
 // HTTP server
 const server = http.createServer(app);
@@ -36,10 +42,10 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('socket connected user:', socket.user?.email, socket.id);
 
-  socket.on('join_conversation', (roomId, cb) => {
-    socket.join(roomId);
-    cb?.({ ok: true });
-  });
+  socket.on('join_conversation', (conversationId, cb) => {
+  socket.join(conversationId);
+  cb?.({ ok: true });
+});
 
   socket.on('send_message', async (data, cb) => {
   const { roomId, ciphertext, iv, tag, text } = data || {};
@@ -68,7 +74,7 @@ io.on('connection', (socket) => {
       ts: payload.ts
     });
     // emit saved doc (or payload) to room
-    io.to(roomId).emit('message', {
+    io.to(conversationId).emit('message', {
       ...payload,
       _id: doc._id
     });
