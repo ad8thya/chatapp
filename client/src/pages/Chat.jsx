@@ -69,6 +69,18 @@ async function decryptText(keyObj, ciphertextB64, ivB64) {
 
 import { useParams } from 'react-router-dom';
 
+// Helper to decode JWT and get user email (for styling only)
+function decodeJwt(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1]));
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default function Chat() {
   const { conversationId } = useParams();
   // read token/key from localStorage at mount (defensive)
@@ -78,6 +90,9 @@ export default function Chat() {
   const [chatKeyB64] = useState(() => {
     try { return localStorage.getItem('CHAT_KEY'); } catch (e) { console.error('localStorage access failed', e); return null; }
   });
+  
+  // Get current user email for message styling
+  const currentUserEmail = token ? (decodeJwt(token)?.email || decodeJwt(token)?.sub) : null;
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
@@ -195,34 +210,77 @@ export default function Chat() {
     setText('');
   };
 
-  return (
-    <div style={{ padding: 16 }}>
-      <div style={{ maxWidth: 800, margin: '0 auto', border: '1px solid #eee', padding: 12 }}>
-        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-  <h2 style={{margin:0}}>Conversation: {conversationId}</h2>
-  <div style={{display:'flex', gap:8}}>
-    <button onClick={() => {
-      localStorage.removeItem('TOKEN');
-      // keep CHAT_KEY if you want, or remove for safety:
-      // localStorage.removeItem('CHAT_KEY');
-      window.location.href = '/login';
-    }}>Logout</button>
-  </div>
-</div>
+  const isMyMessage = (message) => {
+    const msgEmail = message.fromEmail || message.from;
+    return currentUserEmail && msgEmail && msgEmail.toLowerCase() === currentUserEmail.toLowerCase();
+  };
 
-        <div style={{ maxHeight: '60vh', overflow: 'auto', marginBottom: 12 }}>
-          {messages.map((m) => (
-            <div key={m._id ?? m.ts} style={{ padding: 8, borderRadius: 6, background: '#f3f4f6', marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: '#666' }}>{m.fromEmail ?? m.from} · {new Date(m.ts).toLocaleString()}</div>
-              <div style={{ marginTop: 6 }}>{m.text}</div>
+  return (
+    <div className="chat-page">
+      <div className="chat-container">
+        <div className="chat-header">
+          <h2 className="chat-header-title">Conversation: {conversationId}</h2>
+          <div className="chat-header-actions">
+            <button 
+              className="btn btn-ghost"
+              onClick={() => {
+                localStorage.removeItem('TOKEN');
+                // keep CHAT_KEY if you want, or remove for safety:
+                // localStorage.removeItem('CHAT_KEY');
+                window.location.href = '/login';
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-messages">
+          {messages.length === 0 && (
+            <div className="conversations-empty">
+              No messages yet. Start the conversation!
             </div>
-          ))}
+          )}
+          {messages.map((m) => {
+            const mine = isMyMessage(m);
+            return (
+              <div 
+                key={m._id ?? m.ts} 
+                className={`chat-message ${mine ? 'chat-message-mine' : 'chat-message-theirs'}`}
+              >
+                <div className="chat-message-meta">
+                  <span>{m.fromEmail ?? m.from}</span>
+                  <span>·</span>
+                  <span>{new Date(m.ts).toLocaleString()}</span>
+                </div>
+                <div className="chat-message-text">{m.text}</div>
+              </div>
+            );
+          })}
           <div ref={bottomRef} />
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input value={text} onChange={e => setText(e.target.value)} style={{ flex: 1, padding: 8 }} />
-          <button onClick={send} style={{ padding: '8px 12px' }}>Send</button>
+        <div className="chat-input-container">
+          <input 
+            className="chat-input"
+            value={text} 
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Type a message..."
+            aria-label="Message input"
+          />
+          <button 
+            onClick={send} 
+            className="btn btn-primary chat-send-button"
+            disabled={!text.trim()}
+          >
+            Send
+          </button>
         </div>
       </div>
     </div>

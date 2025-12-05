@@ -43,41 +43,25 @@ export default function Header() {
   };
 
   return (
-    <header style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '10px 16px',
-      borderBottom: '1px solid #eee',
-      background: '#fff',
-      position: 'sticky',
-      top: 0,
-      zIndex: 50
-    }}>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <Link to="/" style={{ textDecoration: 'none', color: '#111', fontWeight: 700 }}>ChatApp</Link>
-        <nav style={{ display: 'flex', gap: 10 }}>
-          <Link to="/conversations" style={{ textDecoration: 'none', color: '#555' }}>Conversations</Link>
+    <header className="header">
+      <div className="header-left">
+        <Link to="/" className="header-logo">ChatApp</Link>
+        <nav className="header-nav">
+          <Link to="/conversations">Conversations</Link>
           {/* keep /chat route but /chat without id redirects, so avoid linking plain /chat */}
         </nav>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div className="header-right">
         {email ? (
-          <div style={{ fontSize: 13, color: '#333' }}>
-            <div style={{ fontWeight: 600 }}>{email}</div>
+          <div className="header-user">
+            <div className="header-user-email">{email}</div>
           </div>
         ) : null}
 
         <button
           onClick={onLogout}
-          style={{
-            padding: '6px 10px',
-            borderRadius: 6,
-            border: '1px solid #ddd',
-            background: '#fff',
-            cursor: 'pointer'
-          }}
+          className="btn btn-ghost header-logout"
         >
           Logout
         </button>

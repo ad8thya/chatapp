@@ -54,19 +54,41 @@ export default function Login(){
   };
 
   return (
-    <div style={{padding:20, maxWidth:420, margin:'3rem auto', border:'1px solid #ddd', borderRadius:8}}>
-      <h2 style={{marginBottom:8}}>Login</h2>
-      <form onSubmit={onSubmit}>
-        <label style={{display:'block', marginBottom:6}}>Email</label>
-        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" required style={{width:'100%',padding:8,marginBottom:12}} />
-        <label style={{display:'block', marginBottom:6}}>Password</label>
-        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" required style={{width:'100%',padding:8,marginBottom:12}} />
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-          <button disabled={busy} style={{padding:'8px 12px'}}>Login</button>
-          <Link to="/register">Register</Link>
-        </div>
-        {err && <div style={{color:'crimson', marginTop:12}}>{err}</div>}
-      </form>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h2 className="auth-title">Login</h2>
+        <form onSubmit={onSubmit} className="auth-form">
+          <div className="auth-form-group">
+            <label htmlFor="login-email" className="label">Email</label>
+            <input 
+              id="login-email"
+              className="auth-form-input"
+              value={email} 
+              onChange={e=>setEmail(e.target.value)} 
+              type="email" 
+              required 
+              autoComplete="email"
+            />
+          </div>
+          <div className="auth-form-group">
+            <label htmlFor="login-password" className="label">Password</label>
+            <input 
+              id="login-password"
+              className="auth-form-input"
+              value={password} 
+              onChange={e=>setPassword(e.target.value)} 
+              type="password" 
+              required 
+              autoComplete="current-password"
+            />
+          </div>
+          <div className="auth-form-actions">
+            <button disabled={busy} className="btn btn-primary auth-form-button">Login</button>
+            <Link to="/register" className="auth-form-link">Register</Link>
+          </div>
+          {err && <div className="auth-error">{err}</div>}
+        </form>
+      </div>
     </div>
   );
 }

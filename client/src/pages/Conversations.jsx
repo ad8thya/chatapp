@@ -105,35 +105,61 @@ export default function Conversations(){
   };
 
   return (
-    <div style={{ padding:20 }}>
-      <h2>Your Conversations</h2>
+    <div className="conversations-page">
+      <h2 className="conversations-title">Your Conversations</h2>
 
-      {loading && <div>Loading conversations…</div>}
+      {loading && <div className="conversations-loading">Loading conversations…</div>}
 
       {error && (
-        <div style={{ color: 'crimson', marginBottom: 12 }}>
+        <div className="error-box">
           <strong>Error:</strong>{' '}
           {(error?.body && typeof error.body === 'string') ? error.body :
            (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : error?.message || String(error))}
         </div>
       )}
 
-      {!loading && Array.isArray(list) && list.length === 0 && <div>No conversations yet</div>}
+      {!loading && Array.isArray(list) && list.length === 0 && (
+        <div className="conversations-empty">No conversations yet</div>
+      )}
 
-      {!loading && Array.isArray(list) && list.map(c => (
-        <div key={c._id} style={{ marginBottom: 8 }}>
-          <Link to={`/chat/${c._id}`}>{c.title || c._id}</Link>
+      {!loading && Array.isArray(list) && list.length > 0 && (
+        <div className="conversations-list">
+          {list.map(c => (
+            <Link key={c._id} to={`/chat/${c._id}`} className="conversation-item">
+              {c.title || c._id}
+            </Link>
+          ))}
         </div>
-      ))}
+      )}
 
-      <hr style={{ margin: '12px 0' }} />
+      <hr className="conversations-divider" />
 
-      <h3>Create Conversation</h3>
+      <div className="conversations-create">
+        <h3 className="conversations-create-title">Create Conversation</h3>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-        <input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
-        <input placeholder="Participant emails (comma separated)" value={emails} onChange={e => setEmails(e.target.value)} />
-        <button onClick={createConversation}>Create</button>
+        <div className="conversations-form">
+          <div className="conversations-form-row">
+            <label htmlFor="conversation-title" className="label" style={{ display: 'none' }}>Title</label>
+            <input
+              id="conversation-title"
+              className="conversations-form-input"
+              placeholder="Title"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              aria-label="Conversation title"
+            />
+            <label htmlFor="conversation-emails" className="label" style={{ display: 'none' }}>Participant emails</label>
+            <input
+              id="conversation-emails"
+              className="conversations-form-input"
+              placeholder="Participant emails (comma separated)"
+              value={emails}
+              onChange={e => setEmails(e.target.value)}
+              aria-label="Participant emails (comma separated)"
+            />
+            <button onClick={createConversation} className="btn btn-primary conversations-form-button">Create</button>
+          </div>
+        </div>
       </div>
     </div>
   );

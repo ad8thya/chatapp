@@ -17,7 +17,7 @@ export default function App(){
     <Router>
       {/* header rendered for all routes — it shows login state and logout control */}
       <Header />
-      <main style={{ paddingTop: 12 }}>
+      <main>
         <Routes>
           <Route path="/" element={ isAuthed() ? <Navigate to="/conversations" replace /> : <Navigate to="/login" replace /> } />
           <Route path="/login" element={ <Login /> } />

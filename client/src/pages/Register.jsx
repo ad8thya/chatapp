@@ -47,21 +47,52 @@ export default function Register(){
   };
 
   return (
-    <div style={{padding:20, maxWidth:420, margin:'3rem auto', border:'1px solid #ddd', borderRadius:8}}>
-      <h2 style={{marginBottom:8}}>Register</h2>
-      <form onSubmit={onSubmit}>
-        <label style={{display:'block', marginBottom:6}}>Display name</label>
-        <input value={displayName} onChange={e=>setDisplayName(e.target.value)} required style={{width:'100%',padding:8,marginBottom:12}} />
-        <label style={{display:'block', marginBottom:6}}>Email</label>
-        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" required style={{width:'100%',padding:8,marginBottom:12}} />
-        <label style={{display:'block', marginBottom:6}}>Password</label>
-        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" required style={{width:'100%',padding:8,marginBottom:12}} />
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-          <button disabled={busy} style={{padding:'8px 12px'}}>Create account</button>
-          <Link to="/login">Back to login</Link>
-        </div>
-        {err && <div style={{color:'crimson', marginTop:12}}>{err}</div>}
-      </form>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h2 className="auth-title">Register</h2>
+        <form onSubmit={onSubmit} className="auth-form">
+          <div className="auth-form-group">
+            <label htmlFor="register-display-name" className="label">Display name</label>
+            <input 
+              id="register-display-name"
+              className="auth-form-input"
+              value={displayName} 
+              onChange={e=>setDisplayName(e.target.value)} 
+              required 
+              autoComplete="name"
+            />
+          </div>
+          <div className="auth-form-group">
+            <label htmlFor="register-email" className="label">Email</label>
+            <input 
+              id="register-email"
+              className="auth-form-input"
+              value={email} 
+              onChange={e=>setEmail(e.target.value)} 
+              type="email" 
+              required 
+              autoComplete="email"
+            />
+          </div>
+          <div className="auth-form-group">
+            <label htmlFor="register-password" className="label">Password</label>
+            <input 
+              id="register-password"
+              className="auth-form-input"
+              value={password} 
+              onChange={e=>setPassword(e.target.value)} 
+              type="password" 
+              required 
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="auth-form-actions">
+            <button disabled={busy} className="btn btn-primary auth-form-button">Create account</button>
+            <Link to="/login" className="auth-form-link">Back to login</Link>
+          </div>
+          {err && <div className="auth-error">{err}</div>}
+        </form>
+      </div>
     </div>
   );
 }
