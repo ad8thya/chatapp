@@ -29,14 +29,18 @@ export default function Register(){
       if (!token) throw new Error('registration response missing token');
 
       localStorage.setItem('TOKEN', token);
+      if (res.user) {
+        try { localStorage.setItem('USER', JSON.stringify(res.user)); } catch(e) {}
+      }
       // create a fresh CHAT_KEY for the user (demo)
       const k = generateChatKeyBase64();
       localStorage.setItem('CHAT_KEY', k);
 
-      window.location.href = '/chat';
-    } catch (e) {
-      console.error('register error', e);
-      setErr(e?.error || e?.message || 'Registration failed');
+      // use SPA navigation to conversations
+      nav('/conversations', { replace: true });
+    } catch (err) {
+      console.error('register error', err);
+      setErr(err?.error || err?.message || 'Registration failed');
     } finally {
       setBusy(false);
     }

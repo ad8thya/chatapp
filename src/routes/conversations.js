@@ -4,22 +4,8 @@ const router = express.Router();
 const Conversation = require('../models/Conversation');
 const User = require('../models/User');
 
-// If your project already has an auth middleware, use that. Replace the line below
-// with your real middleware import if needed:
-// const { requireAuth } = require('../middleware/auth');
-//
-// If you don't have requireAuth, this dummy passthrough will allow requests in dev.
-// REMOVE in production and replace with your real auth middleware.
-const requireAuth = (req, res, next) => {
-  if (req.user) return next();
-  // if you use JWT auth, your server probably populates req.user earlier.
-  // for quick dev: try to read user id from a header (not recommended for prod)
-  if (req.headers['x-dev-user']) {
-    req.user = { id: req.headers['x-dev-user'] };
-    return next();
-  }
-  return res.status(401).json({ error: 'unauthenticated' });
-};
+// Use the real auth middleware that verifies Authorization: Bearer <token>
+const { requireAuth } = require('../middleware/auth');
 
 // POST /api/conversations  { title, participantEmails: [ 'a@b.com' ] }
 router.post('/', requireAuth, async (req, res) => {
@@ -30,12 +16,12 @@ router.post('/', requireAuth, async (req, res) => {
     const userIds = users.map(u => u._id.toString());
 
     // ensure the creator is included
-    if (!userIds.includes(req.user.id)) userIds.push(req.user.id);
+    if (!userIds.includes(String(req.user.id))) userIds.push(String(req.user.id));
 
     const convo = await Conversation.create({
       title,
       participants: userIds,
-      createdBy: req.user.id
+      createdBy: String(req.user.id)
     });
 
     return res.json(convo);

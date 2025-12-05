@@ -9,30 +9,63 @@ const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-async function importKeyFromBase64(b64) {
-  const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  return crypto.subtle.importKey('raw', raw.buffer, 'AES-GCM', true, ['encrypt','decrypt']);
+// ---------- robust binary <-> base64 helpers ----------
+function arrayBufferToBase64(buffer) {
+  // chunk safe conversion
+  const bytes = new Uint8Array(buffer);
+  const CHUNK = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
+function base64ToArrayBuffer(b64) {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+// ---------- key import ----------
+async function importKeyFromBase64(b64) {
+  const rawBuf = base64ToArrayBuffer(b64);
+  return crypto.subtle.importKey('raw', rawBuf, 'AES-GCM', true, ['encrypt','decrypt']);
+}
+
+// ---------- encrypt ----------
 async function encryptText(keyObj, plaintext) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, keyObj, enc.encode(plaintext));
-  return {
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(ct))),
-    iv: btoa(String.fromCharCode(...iv))
-  };
+  const ptBuf = enc.encode(plaintext);
+  const ctBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, keyObj, ptBuf);
+
+  const ciphertext = arrayBufferToBase64(ctBuf);
+  const ivB64 = arrayBufferToBase64(iv.buffer);
+
+  // debug: lengths
+  // console.debug('encrypt -> ciphertext len', ciphertext.length, 'iv len', ivB64.length);
+
+  return { ciphertext, iv: ivB64 };
 }
 
+// ---------- decrypt ----------
 async function decryptText(keyObj, ciphertextB64, ivB64) {
   try {
-    const ct = Uint8Array.from(atob(ciphertextB64), c => c.charCodeAt(0));
-    const iv = Uint8Array.from(atob(ivB64), c => c.charCodeAt(0));
-    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, keyObj, ct);
-    return dec.decode(plain);
+    const ctBuf = base64ToArrayBuffer(ciphertextB64);
+    const ivBuf = base64ToArrayBuffer(ivB64);
+    const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(ivBuf) }, keyObj, ctBuf);
+    return dec.decode(plainBuf);
   } catch (e) {
+    // keep real error hidden from users but log for debugging
+    console.error('decryptText failed', e && e.message);
     return null;
   }
 }
+
 
 import { useParams } from 'react-router-dom';
 
@@ -113,6 +146,14 @@ export default function Chat() {
 
         s.on('message', async (m) => {
           if (!mounted) return;
+            console.debug('DEBUG incoming message raw ->', {
+            from: m.fromEmail || m.from,
+            ciphertext_sample: (m.ciphertext || '').slice(0,24),
+            iv_sample: (m.iv || '').slice(0,24),
+            hasCipher: !!m.ciphertext,
+            hasIv: !!m.iv,
+            ts: m.ts
+          });
           if (m.ciphertext && m.iv) {
             const pt = await decryptText(keyRef.current, m.ciphertext, m.iv);
             setMessages(prev => [...prev, { ...m, text: pt ?? '<unable to decrypt>' }]);

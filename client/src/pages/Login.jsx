@@ -31,6 +31,11 @@ export default function Login(){
       }
       // store token
       localStorage.setItem('TOKEN', token);
+      // after localStorage.setItem('TOKEN', token);
+      if (res.user) {
+        try { localStorage.setItem('USER', JSON.stringify(res.user)); } catch(e) {}
+      }
+
 
       // ensure a CHAT_KEY exists for demo: reuse existing or generate
       if (!localStorage.getItem('CHAT_KEY')) {
@@ -38,11 +43,11 @@ export default function Login(){
         localStorage.setItem('CHAT_KEY', k);
       }
 
-      // navigation AFTER token set
-      window.location.href = '/chat';
-    } catch (e) {
-      console.error('login error', e);
-      setErr(e?.error || e?.message || 'Login failed');
+      // use SPA navigation to conversations (no full reload)
+      nav('/conversations', { replace: true });
+    } catch (err) {
+      console.error('login error', err);
+      setErr(err?.error || err?.message || 'Login failed');
     } finally {
       setBusy(false);
     }

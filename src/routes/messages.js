@@ -17,6 +17,10 @@ router.get('/', requireAuth, async (req, res) => {
       .sort({ ts: -1 })
       .limit(parseInt(limit, 10))
       .lean();
+      console.log('DEBUG history fetch -> conversationId:', conversationId, 'count:', docs.length, 'sample:', {
+      ciphertext_sample: (docs[0]?.ciphertext || '').slice(0,24),
+      iv_sample: (docs[0]?.iv || '').slice(0,24),
+    });
 
     // return in chronological order (oldest -> newest)
     return res.json(docs.reverse());
