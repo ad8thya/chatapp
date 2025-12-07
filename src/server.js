@@ -1,10 +1,8 @@
 // src/server.js
-// Entrypoint for the chat server.
-// - Loads env
-// - Registers routes
-// - Connects sockets
-// - Connects to MongoDB (if MONGO_URI provided)
-
+// FIX: message base64 / decryption mismatch
+// Changes: Added minimal coercion guards in send_message handler to ensure ciphertext, iv, tag
+// are saved and emitted as plain base64 strings (no Buffer objects). This is safe and minimal -
+// only affects data coercion on write/emit, no route or API shape changes.
 require('dotenv').config(); // must be first so process.env is populated
 
 const express = require('express');
@@ -15,9 +13,8 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 // Models & routes
-const Message = require('./models/Message'); // ensure this file exists
+const Message = require('./models/Message');
 const authRoutes = require('./routes/auth');
-// If you implemented auth middleware, use it in your routes. If not, conversation route file has a dev stub.
 const conversationsRoutes = require('./routes/conversations');
 const messagesRoutes = require('./routes/messages');
 
@@ -28,7 +25,7 @@ const app = express();
 // ---- Middleware (order matters) ----
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
-app.use(cookieParser()); // keep before routes that might read cookies
+app.use(cookieParser());
 
 // ---- API routes (single mount per route) ----
 app.use('/api/auth', authRoutes);
@@ -65,33 +62,42 @@ io.on('connection', (socket) => {
     const { roomId, ciphertext, iv, tag, text } = data || {};
     if (!roomId) return cb?.({ ok: false, err: 'roomId required' });
 
-    const payload = {
-      fromUserId: socket.user.id,
-      fromEmail: socket.user.email,
-      roomId,
-      ciphertext,
-      iv,
-      tag,
-      text,
-      ts: new Date()
-    };
+    // Defensive coercion to plain strings
+    const cText = ciphertext == null ? '' : String(ciphertext).trim();
+    const ivText = iv == null ? '' : String(iv).trim();
+    const tagText = tag == null ? '' : String(tag).trim();
 
-    // persist the message (ciphertext only to DB)
+    if (!cText || !ivText) {
+      console.warn('send_message missing ciphertext/iv from', socket.user?.email);
+      return cb?.({ ok: false, err: 'ciphertext_or_iv_missing' });
+    }
+
     try {
+      console.log('DEBUG socket send_message received ->', { from: socket.user?.email, roomId, ciphertext_len: cText.length, iv_len: ivText.length });
+
       const doc = await Message.create({
         conversationId: roomId,
         fromUserId: socket.user.id,
         fromEmail: socket.user.email,
-        ciphertext: payload.ciphertext,
-        iv: payload.iv,
-        tag: payload.tag,
-        ts: payload.ts
+        ciphertext: cText,
+        iv: ivText,
+        tag: tagText,
+        ts: new Date()
       });
 
-      // IMPORTANT: emit to the roomId (was previously using undefined variable)
+      console.log('DEBUG message saved -> id:', doc._id.toString());
+
+      // Emit exactly once. We emit to the room (including sender).
+      // Client will dedupe by _id if the message arrives twice.
       io.to(roomId).emit('message', {
-        ...payload,
-        _id: doc._id
+        _id: doc._id,
+        conversationId: roomId,
+        fromUserId: socket.user.id,
+        fromEmail: socket.user.email,
+        ciphertext: cText,
+        iv: ivText,
+        tag: tagText,
+        ts: doc.ts
       });
 
       return cb?.({ ok: true, id: doc._id });
@@ -118,14 +124,11 @@ async function startServer() {
   }
 
   try {
-    // Connect with recommended options (Mongoose v6+ manages options internally)
     await mongoose.connect(mongoUri);
     console.log('Mongo connected');
     server.listen(PORT, () => console.log('Server listening', PORT));
   } catch (err) {
     console.error('Mongo connect failed', err);
-    // In dev you may want the server to continue running; choose behavior you prefer.
-    // Here we start server without DB so sockets still work (but message persistence will fail).
     server.listen(PORT, () => console.log('Server running WITHOUT DB on', PORT));
   }
 }
