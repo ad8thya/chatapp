@@ -1,8 +1,4 @@
 // src/server.js
-// FIX: message base64 / decryption mismatch
-// Changes: Added minimal coercion guards in send_message handler to ensure ciphertext, iv, tag
-// are saved and emitted as plain base64 strings (no Buffer objects). This is safe and minimal -
-// only affects data coercion on write/emit, no route or API shape changes.
 require('dotenv').config(); // must be first so process.env is populated
 
 const express = require('express');
@@ -62,18 +58,38 @@ io.on('connection', (socket) => {
     const { roomId, ciphertext, iv, tag, text } = data || {};
     if (!roomId) return cb?.({ ok: false, err: 'roomId required' });
 
-    // Defensive coercion to plain strings
-    const cText = ciphertext == null ? '' : String(ciphertext).trim();
-    const ivText = iv == null ? '' : String(iv).trim();
-    const tagText = tag == null ? '' : String(tag).trim();
+    const payload = {
+      fromUserId: socket.user.id,
+      fromEmail: socket.user.email,
+      roomId,
+      ciphertext,
+      iv,
+      tag,
+      text,
+      ts: new Date()
+    };
 
-    if (!cText || !ivText) {
-      console.warn('send_message missing ciphertext/iv from', socket.user?.email);
-      return cb?.({ ok: false, err: 'ciphertext_or_iv_missing' });
-    }
-
+    // persist the message (ciphertext only to DB)
     try {
-      console.log('DEBUG socket send_message received ->', { from: socket.user?.email, roomId, ciphertext_len: cText.length, iv_len: ivText.length });
+      // Coerce to plain strings and trim. This avoids Buffer/object values being saved.
+      const cText = ciphertext == null ? '' : String(ciphertext).trim();
+      const ivText = iv == null ? '' : String(iv).trim();
+      const tagText = tag == null ? '' : String(tag).trim();
+      const textText = text == null ? '' : String(text);
+
+      if (!cText || !ivText) {
+        console.warn('send_message missing ciphertext/iv from', socket.user?.email);
+        return cb?.({ ok: false, err: 'ciphertext_or_iv_missing' });
+      }
+
+      console.log('DEBUG socket send_message received ->', {
+        from: socket.user?.email,
+        roomId,
+        ciphertext_sample: cText.slice(0, 24),
+        iv_sample: ivText.slice(0, 24),
+        ciphertext_len: cText.length,
+        iv_len: ivText.length
+      });
 
       const doc = await Message.create({
         conversationId: roomId,
@@ -82,13 +98,12 @@ io.on('connection', (socket) => {
         ciphertext: cText,
         iv: ivText,
         tag: tagText,
-        ts: new Date()
+        ts: payload.ts
       });
 
-      console.log('DEBUG message saved -> id:', doc._id.toString());
+      console.log('DEBUG message saved -> id:', doc._id.toString(), 'emit ciphertext_len:', (doc.ciphertext || '').length, 'iv_len:', (doc.iv || '').length);
 
-      // Emit exactly once. We emit to the room (including sender).
-      // Client will dedupe by _id if the message arrives twice.
+      // Emit the exact strings we saved
       io.to(roomId).emit('message', {
         _id: doc._id,
         conversationId: roomId,
@@ -97,7 +112,7 @@ io.on('connection', (socket) => {
         ciphertext: cText,
         iv: ivText,
         tag: tagText,
-        ts: doc.ts
+        ts: payload.ts
       });
 
       return cb?.({ ok: true, id: doc._id });
