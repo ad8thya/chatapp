@@ -1,29 +1,33 @@
-// src/routes/conversations.js
+// server/src/routes/conversations.js
 const express = require('express');
 const router = express.Router();
 const Conversation = require('../models/Conversation');
 const User = require('../models/User');
-
-// Use the real auth middleware that verifies Authorization: Bearer <token>
+const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
+
+// Helper: generate base64 key of 32 raw bytes
+function genBase64Key32() {
+  return Buffer.from(crypto.randomBytes(32)).toString('base64'); // 44 chars including padding
+}
 
 // POST /api/conversations  { title, participantEmails: [ 'a@b.com' ] }
 router.post('/', requireAuth, async (req, res) => {
   try {
     const { title, participantEmails = [] } = req.body;
-    // Find user IDs for the provided emails
     const users = await User.find({ email: { $in: participantEmails } });
     const userIds = users.map(u => u._id.toString());
-
-    // ensure the creator is included
     if (!userIds.includes(String(req.user.id))) userIds.push(String(req.user.id));
 
+    const chatKey = genBase64Key32();
     const convo = await Conversation.create({
       title,
       participants: userIds,
-      createdBy: String(req.user.id)
+      createdBy: String(req.user.id),
+      chatKey
     });
 
+    // return conversation including chatKey to the creator (participants will fetch via separate endpoint)
     return res.json(convo);
   } catch (err) {
     console.error('create conversation err', err);
@@ -39,6 +43,22 @@ router.get('/', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('list conversations err', err);
     return res.status(500).json({ error: 'list_failed' });
+  }
+});
+
+// GET /api/conversations/:id/key  -> { chatKey } (must come before /:id to avoid route conflict)
+router.get('/:id/key', requireAuth, async (req, res) => {
+  try {
+    const convo = await Conversation.findById(req.params.id).lean();
+    if (!convo) return res.status(404).json({ error: 'not_found' });
+    if (!convo.participants.map(String).includes(String(req.user.id))) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+    // Return the chatKey (server-trusted single source)
+    return res.json({ chatKey: convo.chatKey });
+  } catch (err) {
+    console.error('fetch convo key err', err);
+    return res.status(500).json({ error: 'server_error' });
   }
 });
 
