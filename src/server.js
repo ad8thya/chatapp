@@ -12,6 +12,8 @@ const Message = require('./models/Message');
 const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
 const messagesRoutes = require('./routes/messages');
+const attachmentsRoutes = require('./routes/attachments');
+const keyRotationRoutes = require('./routes/keyrotation');
 
 const { verifyToken } = require('./utils/jwt');
 
@@ -26,6 +28,7 @@ app.use(cookieParser());
 app.use('/api/auth', authRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/conversations', conversationsRoutes);
+app.use('/api/attachments', attachmentsRoutes);
 
 // HTTP + Socket servers
 const server = http.createServer(app);
@@ -63,7 +66,7 @@ io.on('connection', (socket) => {
   // Send message handler
   socket.on('send_message', async (data, cb) => {
     try {
-      const { roomId, ciphertext, iv, tag, text } = data || {};
+      const { roomId, ciphertext, iv, tag, text, attachments } = data || {};
       if (!roomId) return cb?.({ ok: false, err: 'roomId required' });
 
       // Coerce to plain strings
@@ -77,17 +80,6 @@ io.on('connection', (socket) => {
         return cb?.({ ok: false, err: 'ciphertext_or_iv_missing' });
       }
 
-      const payload = {
-        fromUserId: socket.user.id,
-        fromEmail: socket.user.email,
-        roomId,
-        ciphertext: cText,
-        iv: ivText,
-        tag: tagText,
-        text: textText,
-        ts: new Date()
-      };
-
       const doc = await Message.create({
         conversationId: roomId,
         fromUserId: socket.user.id,
@@ -95,11 +87,13 @@ io.on('connection', (socket) => {
         ciphertext: cText,
         iv: ivText,
         tag: tagText,
-        ts: payload.ts
+        ts: new Date(),
+        status: 'sent',
+        attachments: attachments || []
       });
 
-      // Emit exactly once
-      io.to(roomId).emit('message', {
+      // Emit exactly once to room
+      const messagePayload = {
         _id: doc._id,
         conversationId: roomId,
         fromUserId: socket.user.id,
@@ -107,13 +101,89 @@ io.on('connection', (socket) => {
         ciphertext: cText,
         iv: ivText,
         tag: tagText,
-        ts: payload.ts
+        ts: doc.ts,
+        status: 'sent',
+        attachments: doc.attachments || []
+      };
+
+      io.to(roomId).emit('message', messagePayload);
+
+      // Auto-mark as delivered for all participants in room (except sender)
+      socket.to(roomId).emit('message_status', {
+        messageId: doc._id,
+        status: 'delivered',
+        conversationId: roomId
       });
 
       return cb?.({ ok: true, id: doc._id });
     } catch (err) {
       console.error('save failed', err);
       return cb?.({ ok: false, err: 'save_failed' });
+    }
+  });
+
+  // Typing indicator
+  socket.on('typing', (data) => {
+    const { conversationId } = data || {};
+    if (!conversationId) return;
+    
+    // Broadcast to room (except sender)
+    socket.to(conversationId).emit('user_typing', {
+      userId: socket.user.id,
+      email: socket.user.email,
+      conversationId
+    });
+  });
+
+  socket.on('stop_typing', (data) => {
+    const { conversationId } = data || {};
+    if (!conversationId) return;
+    
+    socket.to(conversationId).emit('user_stopped_typing', {
+      userId: socket.user.id,
+      email: socket.user.email,
+      conversationId
+    });
+  });
+
+  // Presence: user online
+  socket.on('presence:online', () => {
+    // Broadcast to all rooms user is in
+    socket.rooms.forEach(room => {
+      if (room !== socket.id) {
+        socket.to(room).emit('presence:update', {
+          userId: socket.user.id,
+          email: socket.user.email,
+          status: 'online',
+          conversationId: room
+        });
+      }
+    });
+  });
+
+  // Message status update (delivered/read)
+  socket.on('message_status_update', async (data) => {
+    try {
+      const { messageId, status } = data || {};
+      if (!messageId || !['delivered', 'read'].includes(status)) {
+        return;
+      }
+
+      const message = await Message.findById(messageId);
+      if (!message) return;
+
+      // Update status in DB
+      message.status = status;
+      await message.save();
+
+      // Broadcast status update to conversation room
+      io.to(String(message.conversationId)).emit('message_status', {
+        messageId: message._id,
+        status: status,
+        conversationId: message.conversationId
+      });
+    } catch (err) {
+      console.error('Message status update error:', err);
     }
   });
 
@@ -130,9 +200,21 @@ io.on('connection', (socket) => {
     cb?.({ rooms });
   });
 
-  // Disconnect handler
+  // Disconnect handler - broadcast offline status
   socket.on('disconnect', (reason) => {
     console.log('✗ Socket disconnected:', socket.user?.email, socket.id, 'reason:', reason);
+    
+    // Broadcast offline status to all rooms
+    socket.rooms.forEach(room => {
+      if (room !== socket.id) {
+        socket.to(room).emit('presence:update', {
+          userId: socket.user.id,
+          email: socket.user.email,
+          status: 'offline',
+          conversationId: room
+        });
+      }
+    });
   });
 });
 

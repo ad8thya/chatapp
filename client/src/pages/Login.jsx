@@ -1,4 +1,5 @@
 // client/src/pages/Login.jsx
+// UI-only updates — no auth logic changes
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { apiLogin } from '../utils/auth';
@@ -47,7 +48,12 @@ export default function Login(){
       nav('/conversations', { replace: true });
     } catch (err) {
       console.error('login error', err);
-      setErr(err?.error || err?.message || 'Login failed');
+      const errorMsg = err?.error || err?.message || 'Login failed';
+      if (errorMsg === 'email_not_verified' || err?.error === 'email_not_verified') {
+        setErr('Please verify your email before logging in. Check your inbox for the verification link.');
+      } else {
+        setErr(errorMsg);
+      }
     } finally {
       setBusy(false);
     }

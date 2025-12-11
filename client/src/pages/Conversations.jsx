@@ -1,6 +1,11 @@
 // client/src/pages/Conversations.jsx
+// UI-only updates — no backend/API changes
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import Avatar from '../components/Avatar';
+import { formatTime } from '../utils/ui';
+
+const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 
 /**
  * Defensive Conversations page:
@@ -10,11 +15,12 @@ import { Link, useNavigate } from 'react-router-dom';
  */
 
 export default function Conversations(){
-  const [list, setList] = useState([]);        // will hold array of convos
+  const [list, setList] = useState([]);
   const [title, setTitle] = useState('');
   const [emails, setEmails] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const nav = useNavigate();
 
   const token = (() => {
@@ -37,7 +43,7 @@ export default function Conversations(){
 
     (async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/conversations', {
+        const res = await fetch(`${SERVER}/api/conversations`, {
           headers: { Authorization: 'Bearer ' + token }
         });
 
@@ -81,7 +87,7 @@ export default function Conversations(){
     setError(null);
     try {
       const participantEmails = emails.split(',').map(e => e.trim()).filter(Boolean);
-      const res = await fetch('http://localhost:3000/api/conversations', {
+      const res = await fetch(`${SERVER}/api/conversations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,35 +110,72 @@ export default function Conversations(){
     }
   };
 
+  const filteredList = list.filter(c => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (c.title || '').toLowerCase().includes(query) || 
+           (c._id || '').toLowerCase().includes(query);
+  });
+
   return (
     <div className="conversations-page">
-      <h2 className="conversations-title">Your Conversations</h2>
-
-      {loading && <div className="conversations-loading">Loading conversations…</div>}
-
-      {error && (
-        <div className="error-box">
-          <strong>Error:</strong>{' '}
-          {(error?.body && typeof error.body === 'string') ? error.body :
-           (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : error?.message || String(error))}
+      <div className="conversations-sidebar">
+        <div className="conversations-title">
+          <h2>Conversations</h2>
         </div>
-      )}
-
-      {!loading && Array.isArray(list) && list.length === 0 && (
-        <div className="conversations-empty">No conversations yet</div>
-      )}
-
-      {!loading && Array.isArray(list) && list.length > 0 && (
-        <div className="conversations-list">
-          {list.map(c => (
-            <Link key={c._id} to={`/chat/${c._id}`} className="conversation-item">
-              {c.title || c._id}
-            </Link>
-          ))}
+        <div className="conversations-search">
+          <input
+            type="search"
+            className="conversations-search-input"
+            placeholder="Search conversations..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            aria-label="Search conversations"
+          />
         </div>
-      )}
 
-      <hr className="conversations-divider" />
+        {loading && (
+          <div className="conversations-loading">
+            <div className="loading-spinner"></div>
+            <p style={{ marginTop: '1rem' }}>Loading conversations…</p>
+          </div>
+        )}
+
+        {error && (
+          <div className="error-box" style={{ margin: '1rem' }}>
+            <strong>Error:</strong>{' '}
+            {(error?.body && typeof error.body === 'string') ? error.body :
+             (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : error?.message || String(error))}
+          </div>
+        )}
+
+        {!loading && Array.isArray(list) && list.length === 0 && (
+          <div className="conversations-empty">No conversations yet</div>
+        )}
+
+        {!loading && Array.isArray(filteredList) && filteredList.length > 0 && (
+          <div className="conversations-list">
+            {filteredList.map(c => (
+              <Link key={c._id} to={`/chat/${c._id}`} className="conversation-item">
+                <Avatar email={c.title || c._id} size={40} className="conversation-item__avatar" />
+                <div className="conversation-item__content">
+                  <div className="conversation-item__title">{c.title || `Conversation ${c._id.slice(-6)}`}</div>
+                  <div className="conversation-item__preview">Tap to open</div>
+                </div>
+                <div className="conversation-item__meta">
+                  {c.updatedAt && (
+                    <div className="conversation-item__time">{formatTime(c.updatedAt)}</div>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+
+        {!loading && searchQuery && filteredList.length === 0 && (
+          <div className="conversations-empty">No conversations match "{searchQuery}"</div>
+        )}
+      </div>
 
       <div className="conversations-create">
         <h3 className="conversations-create-title">Create Conversation</h3>

@@ -62,6 +62,55 @@ router.get('/:id/key', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/conversations/:id/rotate-key
+// Rotates conversation encryption key (creator only)
+router.post('/:id/rotate-key', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversation = await Conversation.findById(id);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'conversation_not_found' });
+    }
+
+    // Only creator can rotate key
+    if (String(conversation.createdBy) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'only_creator_can_rotate_key' });
+    }
+
+    // Check if user is participant
+    const isParticipant = conversation.participants
+      .map(String)
+      .includes(String(req.user.id));
+    
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'not_participant' });
+    }
+
+    // Generate new 32-byte key (base64)
+    const newKey = genBase64Key32();
+
+    // Store new key
+    conversation.chatKey = newKey;
+    conversation.keyVersion = (conversation.keyVersion || 0) + 1;
+    conversation.keyRotatedAt = new Date();
+    conversation.keyRotatedBy = req.user.id;
+    await conversation.save();
+
+    console.log(`✓ Key rotated for conversation ${id} by ${req.user.email}`);
+
+    return res.json({
+      chatKey: newKey,
+      keyVersion: conversation.keyVersion,
+      rotatedAt: conversation.keyRotatedAt,
+      message: 'Key rotated successfully. Participants should fetch new key.'
+    });
+  } catch (err) {
+    console.error('Key rotation error:', err);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
 // GET /api/conversations/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {

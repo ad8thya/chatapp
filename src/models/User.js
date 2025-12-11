@@ -1,11 +1,15 @@
+// src/models/User.js
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
 const UserSchema = new Schema({
   email: { type: String, required: true, unique: true, index: true },
   passwordHash: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
-  displayName: { type: String }
+  displayName: { type: String },
+  emailVerified: { type: Boolean, default: false },
+  emailVerificationToken: { type: String },
+  emailVerificationExpires: { type: Date },
+  createdAt: { type: Date, default: Date.now }
 });
 
 module.exports = mongoose.model('User', UserSchema);
