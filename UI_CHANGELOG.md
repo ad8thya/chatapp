@@ -27,7 +27,7 @@ This changelog documents all UI/UX polish changes made to the React SPA client. 
 - **Classes Added**:
   - `header` - main header container
   - `header-left` - left section (logo + nav)
-  - `header-logo` - ChatApp logo link
+  - `header-logo` - Socket logo link
   - `header-nav` - navigation links container
   - `header-right` - right section (user info + logout)
   - `header-user` - user email container

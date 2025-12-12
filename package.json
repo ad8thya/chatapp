@@ -1,5 +1,5 @@
 {
-  "name": "chatapp",
+  "name": "socket",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -12,6 +12,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@clerk/clerk-sdk-node": "^4.13.23",
+    "@clerk/nextjs": "^6.36.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

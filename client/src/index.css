@@ -461,6 +461,11 @@ main {
   margin: var(--spacing-md);
 }
 
+.conversation-item-wrapper {
+  position: relative;
+  margin-bottom: var(--spacing-sm);
+}
+
 .conversation-item {
   display: flex;
   align-items: center;
@@ -469,12 +474,41 @@ main {
   background-color: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin-bottom: var(--spacing-sm);
   text-decoration: none;
   color: var(--text);
   transition: all 0.2s;
   box-shadow: var(--shadow-sm);
   position: relative;
+}
+
+.conversation-item-wrapper:hover .conversation-item__delete {
+  opacity: 1;
+}
+
+.conversation-item__delete {
+  position: absolute;
+  right: var(--spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: var(--spacing-xs);
+  background-color: var(--danger-light);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  z-index: 10;
+}
+
+.conversation-item__delete:hover {
+  background-color: var(--danger);
+  color: white;
 }
 
 .conversation-item:hover {

@@ -1,3 +1,4 @@
+
 // client/src/pages/Chat.jsx
 // Full-featured chat with typing, status, attachments, offline queue
 import * as React from 'react';
@@ -190,6 +191,20 @@ export default function Chat() {
           s.on('message', async (m) => {
             window.__debug_last_msg = m;
             
+            // Get current user ID for comparison
+            const myUserId = (() => {
+              try {
+                const token = localStorage.getItem('TOKEN');
+                if (!token) return null;
+                const parts = token.split('.');
+                if (parts.length !== 3) return null;
+                const payload = JSON.parse(atob(parts[1]));
+                return payload?.id || null;
+              } catch {
+                return null;
+              }
+            })();
+            
             // Dedupe by _id
             setMessages(prev => {
               if (prev.some(msg => String(msg._id) === String(m._id))) {
@@ -202,16 +217,26 @@ export default function Chat() {
                   setMessages(prevMsgs => {
                     const existing = prevMsgs.find(msg => String(msg._id) === String(m._id));
                     if (existing) return prevMsgs;
-                    return [...prevMsgs, { ...m, text: pt ?? '<unable to decrypt>' }];
+                    const newMsg = { ...m, text: pt ?? '<unable to decrypt>', status: m.status || 'sent' };
+                    
+                    // If I'm not the sender, emit delivered receipt
+                    if (m.fromUserId && String(m.fromUserId) !== String(myUserId)) {
+                      s.emit('message_delivered', { messageId: m._id });
+                    }
+                    
+                    return [...prevMsgs, newMsg];
                   });
                 });
                 return prev; // Return prev while decrypting
               }
-              return [...prev, m];
+              
+              // If I'm not the sender, emit delivered receipt
+              if (m.fromUserId && String(m.fromUserId) !== String(myUserId)) {
+                s.emit('message_delivered', { messageId: m._id });
+              }
+              
+              return [...prev, { ...m, status: m.status || 'sent' }];
             });
-            
-            // Mark as delivered
-            s.emit('message_status_update', { messageId: m._id, status: 'delivered' });
             
             // Scroll to bottom
             setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -281,6 +306,47 @@ export default function Chat() {
       socketRef.current?.emit('stop_typing', { conversationId });
     }, 2000);
   }, [conversationId]);
+
+  // Mark messages as read when they're visible
+  useEffect(() => {
+    if (!socketRef.current?.connected || !conversationId) return;
+
+    // Get current user ID
+    const myUserId = (() => {
+      try {
+        const token = localStorage.getItem('TOKEN');
+        if (!token) return null;
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const payload = JSON.parse(atob(parts[1]));
+        return payload?.id || null;
+      } catch {
+        return null;
+      }
+    })();
+
+    // Find unread messages from other users
+    const unreadMessageIds = messages
+      .filter(m => {
+        const fromId = m.fromUserId || m.from;
+        return fromId && String(fromId) !== String(myUserId) && m.status !== 'read';
+      })
+      .map(m => m._id);
+
+    // Batch mark as read (debounce to avoid too many emits)
+    if (unreadMessageIds.length > 0) {
+      const timeoutId = setTimeout(() => {
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('message_read', {
+            messageIds: unreadMessageIds,
+            conversationId: conversationId
+          });
+        }
+      }, 1000); // Wait 1 second after messages are loaded/visible
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [messages, conversationId]);
 
   // File upload handler
   const handleFileSelect = async (e) => {

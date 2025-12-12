@@ -1,4 +1,4 @@
-# ChatApp - Full-Stack Encrypted Chat MVP
+# Socket - Full-Stack Encrypted Chat MVP
 
 A secure, real-time chat application with end-to-end encryption, built with Node.js/Express, MongoDB, Socket.IO, and React.
 

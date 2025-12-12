@@ -110,6 +110,40 @@ export default function Conversations(){
     }
   };
 
+  const deleteConversation = async (id, e) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    
+    if (!confirm('Delete this conversation? This cannot be undone.')) {
+      return;
+    }
+
+    if (!token) {
+      setError({ error: 'no_token', message: 'Login required' });
+      return;
+    }
+
+    try {
+      const res = await fetch(`${SERVER}/api/conversations/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token }
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        let body;
+        try { body = text ? JSON.parse(text) : null; } catch (e) { body = text; }
+        throw body || { error: 'delete_failed' };
+      }
+
+      // Remove from list
+      setList(prev => prev.filter(c => c._id !== id));
+    } catch (err) {
+      console.error('delete conversation err', err);
+      alert('Failed to delete conversation');
+    }
+  };
+
   const filteredList = list.filter(c => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
@@ -156,18 +190,30 @@ export default function Conversations(){
         {!loading && Array.isArray(filteredList) && filteredList.length > 0 && (
           <div className="conversations-list">
             {filteredList.map(c => (
-              <Link key={c._id} to={`/chat/${c._id}`} className="conversation-item">
-                <Avatar email={c.title || c._id} size={40} className="conversation-item__avatar" />
-                <div className="conversation-item__content">
-                  <div className="conversation-item__title">{c.title || `Conversation ${c._id.slice(-6)}`}</div>
-                  <div className="conversation-item__preview">Tap to open</div>
-                </div>
-                <div className="conversation-item__meta">
-                  {c.updatedAt && (
-                    <div className="conversation-item__time">{formatTime(c.updatedAt)}</div>
-                  )}
-                </div>
-              </Link>
+              <div key={c._id} className="conversation-item-wrapper">
+                <Link to={`/chat/${c._id}`} className="conversation-item">
+                  <Avatar email={c.title || c._id} size={40} className="conversation-item__avatar" />
+                  <div className="conversation-item__content">
+                    <div className="conversation-item__title">{c.title || `Conversation ${c._id.slice(-6)}`}</div>
+                    <div className="conversation-item__preview">Tap to open</div>
+                  </div>
+                  <div className="conversation-item__meta">
+                    {c.updatedAt && (
+                      <div className="conversation-item__time">{formatTime(c.updatedAt)}</div>
+                    )}
+                  </div>
+                </Link>
+                <button
+                  onClick={(e) => deleteConversation(c._id, e)}
+                  className="conversation-item__delete"
+                  aria-label="Delete conversation"
+                  title="Delete conversation"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
         )}

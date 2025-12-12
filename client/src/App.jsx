@@ -1,3 +1,16 @@
+// client/src/main.jsx (or App root)
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { ClerkProvider } from '@clerk/clerk-react';
+import App from './App';
+
+const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ClerkProvider publishableKey={publishableKey}>
+    <App />
+  </ClerkProvider>
+);
 // client/src/App.jsx
 // UI-only updates — no routing/auth logic changes
 import React, { useEffect } from 'react';
@@ -18,6 +31,7 @@ const isAuthed = () => {
 export default function App(){
   useEffect(() => {
     initTheme();
+    document.title = 'Socket';
   }, []);
 
   return (

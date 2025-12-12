@@ -111,6 +111,37 @@ router.post('/:id/rotate-key', requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/conversations/:id
+router.delete('/:id', requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const Message = require('../models/Message');
+    const convo = await Conversation.findById(id);
+    
+    if (!convo) return res.status(404).json({ error: 'not_found' });
+
+    // Only allow participants to delete
+    if (!convo.participants.map(String).includes(String(req.user.id))) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    // Hard delete messages + conversation
+    await Message.deleteMany({ conversationId: id });
+    await Conversation.findByIdAndDelete(id);
+
+    // Notify room that it was deleted (if io is available)
+    const io = req.app.get('io');
+    if (io) {
+      io.to(id).emit('conversation_deleted', { conversationId: id });
+    }
+
+    return res.json({ ok: true, id });
+  } catch (err) {
+    console.error('delete conversation err', err);
+    return res.status(500).json({ error: 'delete_failed' });
+  }
+});
+
 // GET /api/conversations/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {

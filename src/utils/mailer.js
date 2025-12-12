@@ -58,11 +58,11 @@ async function sendVerificationEmail(email, verificationToken) {
     const verificationUrl = `${process.env.CLIENT_URL || 'http://localhost:5173'}/verify-email?token=${verificationToken}`;
 
     const info = await mailer.sendMail({
-      from: '"ChatApp" <noreply@chatapp.com>',
+      from: '"Socket" <noreply@socket.com>',
       to: email,
       subject: 'Verify your email address',
       html: `
-        <h2>Welcome to ChatApp!</h2>
+        <h2>Welcome to Socket!</h2>
         <p>Please verify your email address by clicking the link below:</p>
         <p><a href="${verificationUrl}" style="background: #2563eb; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Verify Email</a></p>
         <p>Or copy this link: <code>${verificationUrl}</code></p>
@@ -86,4 +86,7 @@ module.exports = {
   initMailer,
   sendVerificationEmail,
 };
+
+
+
 

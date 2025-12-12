@@ -10,7 +10,7 @@ const AttachmentSchema = new S({
 }, { _id: false });
 
 const MessageSchema = new S({
-  conversationId: { type: S.Types.ObjectId, ref: 'Conversation', required: true },
+  conversationId: { type: S.Types.ObjectId, ref: 'Conversation', required: true, index: true },
   fromUserId: { type: S.Types.ObjectId, ref: 'User' },
   fromEmail: String,
   ciphertext: String,

@@ -59,7 +59,7 @@ export default function Header() {
   return (
     <header className="header">
       <div className="header-left">
-        <Link to="/" className="header-logo">ChatApp</Link>
+        <Link to="/" className="header-logo">Socket</Link>
         <nav className="header-nav">
           <Link to="/conversations">Conversations</Link>
         </nav>

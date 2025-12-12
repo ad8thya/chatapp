@@ -13,7 +13,6 @@ const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
 const messagesRoutes = require('./routes/messages');
 const attachmentsRoutes = require('./routes/attachments');
-const keyRotationRoutes = require('./routes/keyrotation');
 
 const { verifyToken } = require('./utils/jwt');
 
@@ -33,6 +32,9 @@ app.use('/api/attachments', attachmentsRoutes);
 // HTTP + Socket servers
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true, credentials: true } });
+
+// Make io available to routes via app
+app.set('io', io);
 
 // Socket auth middleware
 io.use((socket, next) => {
@@ -108,12 +110,8 @@ io.on('connection', (socket) => {
 
       io.to(roomId).emit('message', messagePayload);
 
-      // Auto-mark as delivered for all participants in room (except sender)
-      socket.to(roomId).emit('message_status', {
-        messageId: doc._id,
-        status: 'delivered',
-        conversationId: roomId
-      });
+      // Clients will emit message_delivered when they receive the message
+      // Don't auto-mark as delivered here
 
       return cb?.({ ok: true, id: doc._id });
     } catch (err) {
@@ -161,7 +159,61 @@ io.on('connection', (socket) => {
     });
   });
 
-  // Message status update (delivered/read)
+  // Message delivered receipt
+  socket.on('message_delivered', async ({ messageId }) => {
+    try {
+      if (!messageId) return;
+      
+      const msg = await Message.findById(messageId);
+      if (!msg) return;
+      
+      // Only update if still 'sent' (monotonic: sent -> delivered -> read)
+      if (msg.status === 'sent') {
+        msg.status = 'delivered';
+        await msg.save();
+        
+        // Broadcast to conversation room
+        io.to(String(msg.conversationId)).emit('message_status', {
+          messageId: msg._id.toString(),
+          status: 'delivered',
+          conversationId: msg.conversationId
+        });
+      }
+    } catch (e) {
+      console.error('message_delivered error:', e);
+    }
+  });
+
+  // Message read receipt (batch)
+  socket.on('message_read', async ({ messageIds, conversationId }) => {
+    try {
+      if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+      if (!conversationId) return;
+      
+      // Update all messages to 'read' if they're not already read
+      const result = await Message.updateMany(
+        { 
+          _id: { $in: messageIds },
+          conversationId: conversationId,
+          status: { $ne: 'read' }
+        },
+        { status: 'read' }
+      );
+      
+      // Notify room for each updated message
+      messageIds.forEach(id => {
+        io.to(String(conversationId)).emit('message_status', {
+          messageId: id.toString(),
+          status: 'read',
+          conversationId: conversationId
+        });
+      });
+    } catch (e) {
+      console.error('message_read error:', e);
+    }
+  });
+
+  // Legacy message status update handler (for backward compatibility)
   socket.on('message_status_update', async (data) => {
     try {
       const { messageId, status } = data || {};
@@ -172,7 +224,12 @@ io.on('connection', (socket) => {
       const message = await Message.findById(messageId);
       if (!message) return;
 
-      // Update status in DB
+      // Make status monotonic
+      const order = { sent: 0, delivered: 1, read: 2 };
+      if (order[status] <= order[message.status]) {
+        return;
+      }
+
       message.status = status;
       await message.save();
 

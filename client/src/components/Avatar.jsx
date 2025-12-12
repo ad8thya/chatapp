@@ -21,3 +21,6 @@ export default function Avatar({ email, name, size = 40, className = '' }) {
   );
 }
 
+
+
+
