@@ -1,10 +1,10 @@
 // client/src/pages/Conversations.jsx
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
 import Avatar from '../components/Avatar';
 import { formatTime } from '../utils/ui';
-import { getAuthToken } from '../utils/auth';
+import { getAuthHeader } from '../utils/auth';
+import { useAuthContext } from '../context/AuthContext';
 
 const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 
@@ -16,7 +16,7 @@ const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
  */
 
 export default function Conversations(){
-  const { getToken, isSignedIn, isLoaded } = useAuth();
+  const { token, user, loading: authLoading } = useAuthContext();
   const [list, setList] = useState([]);
   const [title, setTitle] = useState('');
   const [emails, setEmails] = useState('');
@@ -25,17 +25,17 @@ export default function Conversations(){
   const [searchQuery, setSearchQuery] = useState('');
   const nav = useNavigate();
 
-  // Wait for Clerk to load
-  if (!isLoaded) {
+  if (authLoading) {
     return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
   }
 
-  if (!isSignedIn) {
-    return null; // ProtectedRoute will handle redirect
+  if (!token || !user) {
+    nav('/login');
+    return null;
   }
 
   useEffect(() => {
-    if (!isSignedIn || !isLoaded || !getToken) {
+    if (!token) {
       return;
     }
 
@@ -45,11 +45,8 @@ export default function Conversations(){
 
     (async () => {
       try {
-        // Get token for API call
-        const token = await getAuthToken(getToken);
-        
         const res = await fetch(`${SERVER}/api/conversations`, {
-          headers: { Authorization: 'Bearer ' + token }
+          headers: { ...getAuthHeader(token) }
         });
 
         const text = await res.text();
@@ -58,6 +55,11 @@ export default function Conversations(){
         try { body = text ? JSON.parse(text) : null; } catch (e) { body = text; }
 
         if (!res.ok) {
+          // If unauthorized, redirect to login instead of retrying
+          if (res.status === 401) {
+            nav('/login');
+            return;
+          }
           // show backend error (either parsed JSON or raw text)
           throw { status: res.status, body };
         }
@@ -74,6 +76,10 @@ export default function Conversations(){
       } catch (err) {
         console.error('Failed to load conversations', err);
         if (mounted) {
+          if (err?.status === 401) {
+            nav('/login');
+            return;
+          }
           // Extract error message from various error formats
           let errorMessage = 'Failed to load conversations';
           let errorType = 'unknown_error';
@@ -114,24 +120,21 @@ export default function Conversations(){
     })();
 
     return () => { mounted = false; };
-  }, [isSignedIn, isLoaded, getToken]);
+  }, [token, nav]);
 
   const createConversation = async () => {
-    if (!isSignedIn || !getToken) {
+    if (!token) {
       setError({ error: 'no_token', message: 'Login required' });
       return;
     }
     setError(null);
     try {
-      // Get token for API call
-      const token = await getAuthToken(getToken);
-      
       const participantEmails = emails.split(',').map(e => e.trim()).filter(Boolean);
       const res = await fetch(`${SERVER}/api/conversations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token
+          ...getAuthHeader(token)
         },
         body: JSON.stringify({ title, participantEmails })
       });
@@ -185,18 +188,15 @@ export default function Conversations(){
       return;
     }
 
-    if (!isSignedIn || !getToken) {
+    if (!token) {
       setError({ error: 'no_token', message: 'Login required' });
       return;
     }
 
     try {
-      // Get token for API call
-      const token = await getAuthToken(getToken);
-      
       const res = await fetch(`${SERVER}/api/conversations/${id}`, {
         method: 'DELETE',
-        headers: { Authorization: 'Bearer ' + token }
+        headers: { ...getAuthHeader(token) }
       });
 
       if (!res.ok) {
@@ -255,30 +255,6 @@ export default function Conversations(){
                 (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : 
                  (error?.error ? String(error.error) : 'An unknown error occurred')))}
             </span>
-            {(error?.error === 'jwt_template_missing' || error?.message?.includes('template') || error?.message?.includes('JWT template')) && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.9em', color: '#666' }}>
-                <p style={{ marginTop: '0.5rem', fontWeight: 'bold' }}>To fix this:</p>
-                <ol style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
-                  <li>Go to your <a href="https://dashboard.clerk.com" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Clerk Dashboard</a></li>
-                  <li>Navigate to <strong>Configure</strong> → <strong>JWT Templates</strong></li>
-                  <li>Click <strong>+ New template</strong></li>
-                  <li>Name it exactly: <code style={{ backgroundColor: '#f0f0f0', padding: '2px 4px', borderRadius: '2px' }}>default</code> (case-sensitive)</li>
-                  <li>Save the template</li>
-                  <li>Refresh this page</li>
-                </ol>
-              </div>
-            )}
-            {(error?.error === 'token_fetch_failed' || error?.message?.includes('token') || error?.message?.includes('authentication')) && !error?.message?.includes('template') && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.9em', color: '#666' }}>
-                <p style={{ marginTop: '0.5rem' }}>Possible causes:</p>
-                <ul style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
-                  <li>JWT template "default" doesn't exist in Clerk dashboard</li>
-                  <li>User is not signed in</li>
-                  <li>Network connection issue</li>
-                </ul>
-                <p style={{ marginTop: '0.5rem' }}>Check the browser console (F12) for more details.</p>
-              </div>
-            )}
           </div>
         )}
 

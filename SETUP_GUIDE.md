@@ -89,3 +89,7 @@ The application requires a JWT template named "default" in your Clerk dashboard.
 - **Fix**: Ensure user has verified email in Clerk dashboard
 
 
+
+
+
+

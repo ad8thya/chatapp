@@ -18,7 +18,7 @@ router.post('/', requireAuth, async (req, res) => {
     const { title, participantEmails = [] } = req.body;
     
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     // Find existing users by email
     const users = await User.find({ email: { $in: participantEmails } });
@@ -49,7 +49,7 @@ router.post('/', requireAuth, async (req, res) => {
 router.get('/', requireAuth, async (req, res) => {
   try {
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     // Find conversations where current user is a participant
     const convos = await Conversation.find({ participants: currentUser._id }).sort({ createdAt: -1 });
@@ -64,7 +64,7 @@ router.get('/', requireAuth, async (req, res) => {
 router.get('/:id/key', requireAuth, async (req, res) => {
   try {
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     const convo = await Conversation.findById(req.params.id).lean();
     if (!convo) return res.status(404).json({ error: 'not_found' });
@@ -84,7 +84,7 @@ router.get('/:id/key', requireAuth, async (req, res) => {
 router.post('/:id/rotate-key', requireAuth, async (req, res) => {
   try {
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     const { id } = req.params;
     const conversation = await Conversation.findById(id);
@@ -135,7 +135,7 @@ router.post('/:id/rotate-key', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     const id = req.params.id;
     const Message = require('../models/Message');
@@ -169,7 +169,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     // Get or create current user's MongoDB record
-    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    const currentUser = await getOrCreateUser(req.user.userId, req.user.email);
     
     const convo = await Conversation.findById(req.params.id);
     if (!convo) return res.status(404).json({ error: 'not_found' });

@@ -1,13 +1,14 @@
 // client/src/components/Header.jsx
-// Header with Clerk UserButton, theme toggle
+// Header with theme toggle
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useAuth, UserButton } from '@clerk/clerk-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { getTheme, setTheme, initTheme } from '../utils/ui';
+import { useAuthContext } from '../context/AuthContext';
 
 export default function Header() {
   const [theme, setThemeState] = useState(() => getTheme());
-  const { isSignedIn, user } = useAuth();
+  const { user, logout } = useAuthContext();
+  const nav = useNavigate();
   
   useEffect(() => {
     initTheme();
@@ -29,17 +30,15 @@ export default function Header() {
       </div>
 
       <div className="header-right">
-        {isSignedIn && user && (
+        {user && (
           <div className="header-user" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span className="header-user-email">{user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress}</span>
-            <UserButton 
-              afterSignOutUrl="/login"
-              appearance={{
-                elements: {
-                  avatarBox: "w-8 h-8"
-                }
-              }}
-            />
+            <span className="header-user-email">{user.email}</span>
+            <button
+              onClick={() => { logout(); nav('/login'); }}
+              className="btn btn-ghost"
+            >
+              Logout
+            </button>
           </div>
         )}
 

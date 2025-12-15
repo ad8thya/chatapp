@@ -5,15 +5,15 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 
 /**
- * Get or create MongoDB user by Clerk ID
- * @param {string} clerkId - Clerk user ID
- * @param {string} email - User email from Clerk
+ * Get or create MongoDB user by userId (JWT) and email
+ * @param {string} userId - User ID from JWT (Mongo _id as string)
+ * @param {string} email - User email from JWT
  * @returns {Promise<Object>} MongoDB user document
  * @throws {Error} If MongoDB is not connected or operation fails
  */
-async function getOrCreateUser(clerkId, email) {
-  if (!clerkId || !email) {
-    throw new Error('clerkId and email are required');
+async function getOrCreateUser(userId, email) {
+  if (!userId || !email) {
+    throw new Error('userId and email are required');
   }
 
   // Check if MongoDB is connected
@@ -22,25 +22,28 @@ async function getOrCreateUser(clerkId, email) {
   }
 
   try {
-    let user = await User.findOne({ clerkId });
-    
+    // First try to find by _id if provided
+    let user = await User.findById(userId);
+
     if (!user) {
-      // Create user record if doesn't exist
+      // Fallback: find by email (unique) to avoid duplicates
+      user = await User.findOne({ email });
+    }
+
+    if (!user) {
+      // Create user record if it doesn't exist
       user = await User.create({
-        clerkId,
-        email
+        _id: userId,
+        email,
       });
     } else if (user.email !== email) {
-      // Update email if it changed in Clerk
+      // Update email if it changed
       user.email = email;
       await user.save();
     }
-    
+
     return user;
   } catch (error) {
-    if (error.name === 'MongoServerError' || error.name === 'MongoNetworkError') {
-      throw new Error('Database connection error. Please check MongoDB connection.');
-    }
     throw error;
   }
 }

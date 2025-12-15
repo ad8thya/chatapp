@@ -1,26 +1,26 @@
 // client/src/App.jsx
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Chat from './pages/Chat';
 import Conversations from './pages/Conversations';
 import Header from './components/Header';
 import { initTheme } from './utils/ui';
+import { useAuthContext } from './context/AuthContext';
 
-// Protected route wrapper using Clerk auth
+// Protected route wrapper using JWT auth
 function ProtectedRoute({ children }) {
-  const { isSignedIn, isLoaded } = useAuth();
-  
-  if (!isLoaded) {
+  const { token, user, loading } = useAuthContext();
+
+  if (loading) {
     return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
   }
-  
-  if (!isSignedIn) {
+
+  if (!token || !user) {
     return <Navigate to="/login" replace />;
   }
-  
+
   return children;
 }
 

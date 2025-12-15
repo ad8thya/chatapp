@@ -4,13 +4,13 @@
 import * as React from 'react';
 const { useEffect, useState, useRef, useCallback } = React;
 import { io } from 'socket.io-client';
-import { useParams } from 'react-router-dom';
-import { useAuth } from '@clerk/clerk-react';
+import { useParams, useNavigate } from 'react-router-dom';
 import MessageBubble from '../components/MessageBubble';
 import TypingIndicator from '../components/TypingIndicator';
 import { formatDateSeparator } from '../utils/ui';
 import { addUnsentMessage, flushUnsent } from '../utils/offlineQueue';
-import { getAuthToken, getUserEmail } from '../utils/auth';
+import { getAuthHeader } from '../utils/auth';
+import { useAuthContext } from '../context/AuthContext';
 
 const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 const enc = new TextEncoder();
@@ -60,7 +60,8 @@ async function decryptText(keyObj, ciphertextB64, ivB64) {
 
 export default function Chat() {
   const { conversationId } = useParams();
-  const { getToken, user, userId, isLoaded, isSignedIn } = useAuth();
+  const { token, user, loading: authLoading } = useAuthContext();
+  const nav = useNavigate();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [typingUsers, setTypingUsers] = useState([]);
@@ -71,28 +72,16 @@ export default function Chat() {
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  // Wait for Clerk to load
-  if (!isLoaded) {
+  if (authLoading) {
     return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
   }
-  
-  if (!isSignedIn) {
-    return null; // ProtectedRoute will handle redirect
+
+  if (!token || !user) {
+    nav('/login');
+    return null;
   }
 
-  // Get current user email from Clerk - fail loudly if missing
-  let currentUserEmail;
-  try {
-    currentUserEmail = getUserEmail(user);
-  } catch (error) {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <div className="error-box">
-          <strong>Authentication Error:</strong> {error.message}
-        </div>
-      </div>
-    );
-  }
+  const currentUserEmail = user.email;
 
   // Send message helper (used by send and offline queue flush)
   const sendMessage = useCallback(async (payload) => {
@@ -116,19 +105,20 @@ export default function Chat() {
   }, [conversationId]);
 
   useEffect(() => {
-    if (!isSignedIn || !isLoaded || !getToken) return;
+    if (!token || !user) return;
     let mounted = true;
 
     (async () => {
       try {
-        // Get token for API calls
-        const token = await getAuthToken(getToken);
-        
         // Fetch conversation key
         const res = await fetch(`${SERVER}/api/conversations/${conversationId}/key`, {
-          headers: { Authorization: 'Bearer ' + token }
+          headers: { ...getAuthHeader(token) }
         });
         if (!res.ok) {
+          if (res.status === 401) {
+            nav('/login');
+            return;
+          }
           const txt = await res.text();
           console.error('fetch convo key failed', res.status, txt);
           return;
@@ -143,8 +133,12 @@ export default function Chat() {
         // Fetch history
         const url = new URL(SERVER + '/api/messages');
         url.searchParams.set('conversationId', conversationId);
-        const histRes = await fetch(url.toString(), { headers: { Authorization: 'Bearer ' + token } });
+        const histRes = await fetch(url.toString(), { headers: { ...getAuthHeader(token) } });
         if (!histRes.ok) {
+          if (histRes.status === 401) {
+            nav('/login');
+            return;
+          }
           console.warn('history fetch failed', histRes.status, await histRes.text());
           return;
         }
@@ -161,7 +155,7 @@ export default function Chat() {
         // Connect socket
         if (!socketRef.current) {
           const s = io(SERVER, {
-            auth: { token: token },
+            auth: { token },
             transports: ['websocket'],
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -290,7 +284,7 @@ export default function Chat() {
       try { socketRef.current?.disconnect(); } catch (e) {}
       socketRef.current = null;
     };
-  }, [isSignedIn, isLoaded, getToken, conversationId, sendMessage, currentUserEmail]);
+  }, [token, user, conversationId, sendMessage, currentUserEmail]);
 
   // Typing handler
   const handleTyping = useCallback(() => {
@@ -334,7 +328,7 @@ export default function Chat() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [messages, conversationId]);
+  }, [messages, conversationId, currentUserEmail]);
 
   // File upload handler
   const handleFileSelect = async (e) => {
@@ -347,21 +341,21 @@ export default function Chat() {
     }
 
     try {
-      // Get token for API call
-      const token = await getAuthToken(getToken);
-      
       const form = new FormData();
       form.append('file', file);
 
       const res = await fetch(`${SERVER}/api/attachments/upload`, {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer ' + token,
+          ...getAuthHeader(token),
         },
         body: form,
       });
-
-    if (!res.ok) throw new Error('Upload failed');
+      if (res.status === 401) {
+        nav('/login');
+        return;
+      }
+      if (!res.ok) throw new Error('Upload failed');
 
     const data = await res.json();
 
