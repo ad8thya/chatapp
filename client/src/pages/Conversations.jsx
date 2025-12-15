@@ -1,20 +1,22 @@
 // client/src/pages/Conversations.jsx
-// UI-only updates — no backend/API changes
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import Avatar from '../components/Avatar';
 import { formatTime } from '../utils/ui';
+import { getAuthToken } from '../utils/auth';
 
 const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 
 /**
- * Defensive Conversations page:
- * - Checks for TOKEN before calling API
+ * Conversations page:
+ * - Uses Clerk authentication
  * - Handles non-JSON and non-array responses gracefully
  * - Shows simple error and loading states so the UI doesn't crash
  */
 
 export default function Conversations(){
+  const { getToken, isSignedIn, isLoaded } = useAuth();
   const [list, setList] = useState([]);
   const [title, setTitle] = useState('');
   const [emails, setEmails] = useState('');
@@ -23,17 +25,17 @@ export default function Conversations(){
   const [searchQuery, setSearchQuery] = useState('');
   const nav = useNavigate();
 
-  const token = (() => {
-    try { return localStorage.getItem('TOKEN'); }
-    catch (e) { console.error('localStorage access failed', e); return null; }
-  })();
+  // Wait for Clerk to load
+  if (!isLoaded) {
+    return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
+  }
+
+  if (!isSignedIn) {
+    return null; // ProtectedRoute will handle redirect
+  }
 
   useEffect(() => {
-    // If no token, bail early (prevents wrong calls from unauth'd pages)
-    if (!token) {
-      setError({ error: 'no_token', message: 'Not authenticated. Please login.' });
-      setLoading(false);
-      setList([]);
+    if (!isSignedIn || !isLoaded || !getToken) {
       return;
     }
 
@@ -43,6 +45,9 @@ export default function Conversations(){
 
     (async () => {
       try {
+        // Get token for API call
+        const token = await getAuthToken(getToken);
+        
         const res = await fetch(`${SERVER}/api/conversations`, {
           headers: { Authorization: 'Bearer ' + token }
         });
@@ -69,7 +74,39 @@ export default function Conversations(){
       } catch (err) {
         console.error('Failed to load conversations', err);
         if (mounted) {
-          setError(err);
+          // Extract error message from various error formats
+          let errorMessage = 'Failed to load conversations';
+          let errorType = 'unknown_error';
+          
+          if (err instanceof Error) {
+            errorMessage = err.message;
+            if (err.message?.includes('template') || err.message?.includes('JWT template')) {
+              errorType = 'jwt_template_missing';
+            } else if (err.message?.includes('token') || err.message?.includes('authentication')) {
+              errorType = 'token_fetch_failed';
+            }
+          } else if (typeof err === 'string') {
+            errorMessage = err;
+          } else if (err?.message) {
+            errorMessage = err.message;
+          } else if (err?.body) {
+            if (typeof err.body === 'string') {
+              errorMessage = err.body;
+            } else if (err.body?.error) {
+              errorMessage = err.body.error;
+            } else if (err.body?.message) {
+              errorMessage = err.body.message;
+            } else {
+              errorMessage = JSON.stringify(err.body);
+            }
+          } else if (err?.error) {
+            errorMessage = String(err.error);
+          }
+          
+          setError({ 
+            error: errorType,
+            message: errorMessage || 'An unknown error occurred'
+          });
           setList([]);
           setLoading(false);
         }
@@ -77,15 +114,18 @@ export default function Conversations(){
     })();
 
     return () => { mounted = false; };
-  }, [token]);
+  }, [isSignedIn, isLoaded, getToken]);
 
   const createConversation = async () => {
-    if (!token) {
+    if (!isSignedIn || !getToken) {
       setError({ error: 'no_token', message: 'Login required' });
       return;
     }
     setError(null);
     try {
+      // Get token for API call
+      const token = await getAuthToken(getToken);
+      
       const participantEmails = emails.split(',').map(e => e.trim()).filter(Boolean);
       const res = await fetch(`${SERVER}/api/conversations`, {
         method: 'POST',
@@ -106,7 +146,34 @@ export default function Conversations(){
       nav(`/chat/${body._id}`);
     } catch (err) {
       console.error('create convo err', err);
-      setError(err);
+      let errorMessage = 'Failed to create conversation.';
+      let errorType = 'create_failed';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        if (err.message?.includes('template') || err.message?.includes('JWT template')) {
+          errorType = 'jwt_template_missing';
+        }
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      } else if (err?.message) {
+        errorMessage = err.message;
+      } else if (err?.body) {
+        if (typeof err.body === 'string') {
+          errorMessage = err.body;
+        } else if (err.body?.error) {
+          errorMessage = err.body.error;
+        } else if (err.body?.message) {
+          errorMessage = err.body.message;
+        }
+      } else if (err?.error) {
+        errorMessage = String(err.error);
+      }
+      
+      setError({ 
+        error: errorType,
+        message: errorMessage
+      });
     }
   };
 
@@ -118,12 +185,15 @@ export default function Conversations(){
       return;
     }
 
-    if (!token) {
+    if (!isSignedIn || !getToken) {
       setError({ error: 'no_token', message: 'Login required' });
       return;
     }
 
     try {
+      // Get token for API call
+      const token = await getAuthToken(getToken);
+      
       const res = await fetch(`${SERVER}/api/conversations/${id}`, {
         method: 'DELETE',
         headers: { Authorization: 'Bearer ' + token }
@@ -176,10 +246,39 @@ export default function Conversations(){
         )}
 
         {error && (
-          <div className="error-box" style={{ margin: '1rem' }}>
+          <div className="error-box" style={{ margin: '1rem', padding: '1rem', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '4px' }}>
             <strong>Error:</strong>{' '}
-            {(error?.body && typeof error.body === 'string') ? error.body :
-             (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : error?.message || String(error))}
+            <span style={{ wordBreak: 'break-word' }}>
+              {error?.message || 
+               (typeof error === 'string' ? error : 
+                (error?.body && typeof error.body === 'string') ? error.body :
+                (error?.body && typeof error.body === 'object' ? JSON.stringify(error.body) : 
+                 (error?.error ? String(error.error) : 'An unknown error occurred')))}
+            </span>
+            {(error?.error === 'jwt_template_missing' || error?.message?.includes('template') || error?.message?.includes('JWT template')) && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.9em', color: '#666' }}>
+                <p style={{ marginTop: '0.5rem', fontWeight: 'bold' }}>To fix this:</p>
+                <ol style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
+                  <li>Go to your <a href="https://dashboard.clerk.com" target="_blank" rel="noopener noreferrer" style={{ color: '#0066cc' }}>Clerk Dashboard</a></li>
+                  <li>Navigate to <strong>Configure</strong> → <strong>JWT Templates</strong></li>
+                  <li>Click <strong>+ New template</strong></li>
+                  <li>Name it exactly: <code style={{ backgroundColor: '#f0f0f0', padding: '2px 4px', borderRadius: '2px' }}>default</code> (case-sensitive)</li>
+                  <li>Save the template</li>
+                  <li>Refresh this page</li>
+                </ol>
+              </div>
+            )}
+            {(error?.error === 'token_fetch_failed' || error?.message?.includes('token') || error?.message?.includes('authentication')) && !error?.message?.includes('template') && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.9em', color: '#666' }}>
+                <p style={{ marginTop: '0.5rem' }}>Possible causes:</p>
+                <ul style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
+                  <li>JWT template "default" doesn't exist in Clerk dashboard</li>
+                  <li>User is not signed in</li>
+                  <li>Network connection issue</li>
+                </ul>
+                <p style={{ marginTop: '0.5rem' }}>Check the browser console (F12) for more details.</p>
+              </div>
+            )}
           </div>
         )}
 

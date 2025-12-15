@@ -5,10 +5,12 @@ import * as React from 'react';
 const { useEffect, useState, useRef, useCallback } = React;
 import { io } from 'socket.io-client';
 import { useParams } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import MessageBubble from '../components/MessageBubble';
 import TypingIndicator from '../components/TypingIndicator';
 import { formatDateSeparator } from '../utils/ui';
 import { addUnsentMessage, flushUnsent } from '../utils/offlineQueue';
+import { getAuthToken, getUserEmail } from '../utils/auth';
 
 const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
 const enc = new TextEncoder();
@@ -58,7 +60,7 @@ async function decryptText(keyObj, ciphertextB64, ivB64) {
 
 export default function Chat() {
   const { conversationId } = useParams();
-  const [token] = useState(() => localStorage.getItem('TOKEN'));
+  const { getToken, user, userId, isLoaded, isSignedIn } = useAuth();
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [typingUsers, setTypingUsers] = useState([]);
@@ -69,19 +71,28 @@ export default function Chat() {
   const typingTimeoutRef = useRef(null);
   const fileInputRef = useRef(null);
   
-  // Get current user email for message alignment
-  const currentUserEmail = (() => {
-    try {
-      const token = localStorage.getItem('TOKEN');
-      if (!token) return null;
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-      const payload = JSON.parse(atob(parts[1]));
-      return payload?.email || payload?.sub || null;
-    } catch {
-      return null;
-    }
-  })();
+  // Wait for Clerk to load
+  if (!isLoaded) {
+    return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
+  }
+  
+  if (!isSignedIn) {
+    return null; // ProtectedRoute will handle redirect
+  }
+
+  // Get current user email from Clerk - fail loudly if missing
+  let currentUserEmail;
+  try {
+    currentUserEmail = getUserEmail(user);
+  } catch (error) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center' }}>
+        <div className="error-box">
+          <strong>Authentication Error:</strong> {error.message}
+        </div>
+      </div>
+    );
+  }
 
   // Send message helper (used by send and offline queue flush)
   const sendMessage = useCallback(async (payload) => {
@@ -105,11 +116,14 @@ export default function Chat() {
   }, [conversationId]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!isSignedIn || !isLoaded || !getToken) return;
     let mounted = true;
 
     (async () => {
       try {
+        // Get token for API calls
+        const token = await getAuthToken(getToken);
+        
         // Fetch conversation key
         const res = await fetch(`${SERVER}/api/conversations/${conversationId}/key`, {
           headers: { Authorization: 'Bearer ' + token }
@@ -147,7 +161,7 @@ export default function Chat() {
         // Connect socket
         if (!socketRef.current) {
           const s = io(SERVER, {
-            auth: { token },
+            auth: { token: token },
             transports: ['websocket'],
             reconnection: true,
             reconnectionAttempts: Infinity,
@@ -191,20 +205,6 @@ export default function Chat() {
           s.on('message', async (m) => {
             window.__debug_last_msg = m;
             
-            // Get current user ID for comparison
-            const myUserId = (() => {
-              try {
-                const token = localStorage.getItem('TOKEN');
-                if (!token) return null;
-                const parts = token.split('.');
-                if (parts.length !== 3) return null;
-                const payload = JSON.parse(atob(parts[1]));
-                return payload?.id || null;
-              } catch {
-                return null;
-              }
-            })();
-            
             // Dedupe by _id
             setMessages(prev => {
               if (prev.some(msg => String(msg._id) === String(m._id))) {
@@ -219,8 +219,9 @@ export default function Chat() {
                     if (existing) return prevMsgs;
                     const newMsg = { ...m, text: pt ?? '<unable to decrypt>', status: m.status || 'sent' };
                     
-                    // If I'm not the sender, emit delivered receipt
-                    if (m.fromUserId && String(m.fromUserId) !== String(myUserId)) {
+                    // If I'm not the sender, emit delivered receipt (compare by email)
+                    const fromEmail = m.fromEmail || m.from;
+                    if (fromEmail && fromEmail.toLowerCase() !== currentUserEmail.toLowerCase()) {
                       s.emit('message_delivered', { messageId: m._id });
                     }
                     
@@ -230,8 +231,9 @@ export default function Chat() {
                 return prev; // Return prev while decrypting
               }
               
-              // If I'm not the sender, emit delivered receipt
-              if (m.fromUserId && String(m.fromUserId) !== String(myUserId)) {
+              // If I'm not the sender, emit delivered receipt (compare by email)
+              const fromEmail = m.fromEmail || m.from;
+              if (fromEmail && fromEmail.toLowerCase() !== currentUserEmail.toLowerCase()) {
                 s.emit('message_delivered', { messageId: m._id });
               }
               
@@ -288,7 +290,7 @@ export default function Chat() {
       try { socketRef.current?.disconnect(); } catch (e) {}
       socketRef.current = null;
     };
-  }, [token, conversationId, sendMessage, currentUserEmail]);
+  }, [isSignedIn, isLoaded, getToken, conversationId, sendMessage, currentUserEmail]);
 
   // Typing handler
   const handleTyping = useCallback(() => {
@@ -311,25 +313,11 @@ export default function Chat() {
   useEffect(() => {
     if (!socketRef.current?.connected || !conversationId) return;
 
-    // Get current user ID
-    const myUserId = (() => {
-      try {
-        const token = localStorage.getItem('TOKEN');
-        if (!token) return null;
-        const parts = token.split('.');
-        if (parts.length !== 3) return null;
-        const payload = JSON.parse(atob(parts[1]));
-        return payload?.id || null;
-      } catch {
-        return null;
-      }
-    })();
-
-    // Find unread messages from other users
+    // Find unread messages from other users (compare by email)
     const unreadMessageIds = messages
       .filter(m => {
-        const fromId = m.fromUserId || m.from;
-        return fromId && String(fromId) !== String(myUserId) && m.status !== 'read';
+        const fromEmail = m.fromEmail || m.from;
+        return fromEmail && fromEmail.toLowerCase() !== currentUserEmail.toLowerCase() && m.status !== 'read';
       })
       .map(m => m._id);
 
@@ -353,61 +341,47 @@ export default function Chat() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size (10MB max)
     if (file.size > 10 * 1024 * 1024) {
-      alert('File size exceeds 10MB limit');
+      alert('File too large (10MB max)');
       return;
     }
 
     try {
-      // Get signed URL
-      const urlParams = new URLSearchParams({
-        filename: file.name,
-        contentType: file.type,
-        conversationId: conversationId,
-        size: file.size.toString()
-      });
+      // Get token for API call
+      const token = await getAuthToken(getToken);
       
-      const res = await fetch(`${SERVER}/api/attachments/signed-url?${urlParams}`, {
-        headers: { Authorization: 'Bearer ' + token }
-      });
-      
-      if (!res.ok) {
-        throw new Error('Failed to get upload URL');
-      }
-      
-      const { uploadUrl, publicUrl, fileId } = await res.json();
-      
-      // Upload to S3 or local endpoint
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        body: file,
+      const form = new FormData();
+      form.append('file', file);
+
+      const res = await fetch(`${SERVER}/api/attachments/upload`, {
+        method: 'POST',
         headers: {
-          'Content-Type': file.type
-        }
+          Authorization: 'Bearer ' + token,
+        },
+        body: form,
       });
-      
-      if (!uploadRes.ok) {
-        throw new Error('Upload failed');
+
+    if (!res.ok) throw new Error('Upload failed');
+
+    const data = await res.json();
+
+    setAttachments(prev => [
+      ...prev,
+      {
+        url: data.url,
+        filename: data.filename,
+        mime: data.mime,
+        size: data.size,
       }
-      
-      // Add to attachments state
-      setAttachments(prev => [...prev, {
-        url: publicUrl,
-        filename: file.name,
-        mime: file.type,
-        size: file.size
-      }]);
-      
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-    } catch (err) {
-      console.error('File upload error:', err);
-      alert('Failed to upload file');
-    }
-  };
+    ]);
+
+    fileInputRef.current.value = '';
+  } catch (err) {
+    console.error(err);
+    alert('Upload failed');
+  }
+};
+
 
   const send = async () => {
     if (!text.trim() && attachments.length === 0) return;

@@ -1,10 +1,11 @@
-// server/src/routes/conversations.js
+// src/routes/conversations.js
 const express = require('express');
 const router = express.Router();
 const Conversation = require('../models/Conversation');
 const User = require('../models/User');
 const crypto = require('crypto');
 const { requireAuth } = require('../middleware/auth');
+const { getOrCreateUser } = require('../utils/userHelper');
 
 // Helper: generate base64 key of 32 raw bytes
 function genBase64Key32() {
@@ -15,15 +16,24 @@ function genBase64Key32() {
 router.post('/', requireAuth, async (req, res) => {
   try {
     const { title, participantEmails = [] } = req.body;
+    
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
+    // Find existing users by email
     const users = await User.find({ email: { $in: participantEmails } });
-    const userIds = users.map(u => u._id.toString());
-    if (!userIds.includes(String(req.user.id))) userIds.push(String(req.user.id));
+    const userIds = users.map(u => u._id);
+    
+    // Add current user to participants if not already included
+    if (!userIds.some(id => id.toString() === currentUser._id.toString())) {
+      userIds.push(currentUser._id);
+    }
 
     const chatKey = genBase64Key32();
     const convo = await Conversation.create({
       title,
       participants: userIds,
-      createdBy: String(req.user.id),
+      createdBy: currentUser._id,
       chatKey
     });
 
@@ -38,7 +48,11 @@ router.post('/', requireAuth, async (req, res) => {
 // GET /api/conversations
 router.get('/', requireAuth, async (req, res) => {
   try {
-    const convos = await Conversation.find({ participants: req.user.id }).sort({ createdAt: -1 });
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
+    // Find conversations where current user is a participant
+    const convos = await Conversation.find({ participants: currentUser._id }).sort({ createdAt: -1 });
     return res.json(convos);
   } catch (err) {
     console.error('list conversations err', err);
@@ -49,9 +63,12 @@ router.get('/', requireAuth, async (req, res) => {
 // GET /api/conversations/:id/key  -> { chatKey } (must come before /:id to avoid route conflict)
 router.get('/:id/key', requireAuth, async (req, res) => {
   try {
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
     const convo = await Conversation.findById(req.params.id).lean();
     if (!convo) return res.status(404).json({ error: 'not_found' });
-    if (!convo.participants.map(String).includes(String(req.user.id))) {
+    if (!convo.participants.map(String).includes(String(currentUser._id))) {
       return res.status(403).json({ error: 'forbidden' });
     }
     // Return the chatKey (server-trusted single source)
@@ -66,6 +83,9 @@ router.get('/:id/key', requireAuth, async (req, res) => {
 // Rotates conversation encryption key (creator only)
 router.post('/:id/rotate-key', requireAuth, async (req, res) => {
   try {
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
     const { id } = req.params;
     const conversation = await Conversation.findById(id);
 
@@ -74,14 +94,14 @@ router.post('/:id/rotate-key', requireAuth, async (req, res) => {
     }
 
     // Only creator can rotate key
-    if (String(conversation.createdBy) !== String(req.user.id)) {
+    if (String(conversation.createdBy) !== String(currentUser._id)) {
       return res.status(403).json({ error: 'only_creator_can_rotate_key' });
     }
 
     // Check if user is participant
     const isParticipant = conversation.participants
       .map(String)
-      .includes(String(req.user.id));
+      .includes(String(currentUser._id));
     
     if (!isParticipant) {
       return res.status(403).json({ error: 'not_participant' });
@@ -94,7 +114,7 @@ router.post('/:id/rotate-key', requireAuth, async (req, res) => {
     conversation.chatKey = newKey;
     conversation.keyVersion = (conversation.keyVersion || 0) + 1;
     conversation.keyRotatedAt = new Date();
-    conversation.keyRotatedBy = req.user.id;
+    conversation.keyRotatedBy = currentUser._id;
     await conversation.save();
 
     console.log(`✓ Key rotated for conversation ${id} by ${req.user.email}`);
@@ -114,6 +134,9 @@ router.post('/:id/rotate-key', requireAuth, async (req, res) => {
 // DELETE /api/conversations/:id
 router.delete('/:id', requireAuth, async (req, res) => {
   try {
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
     const id = req.params.id;
     const Message = require('../models/Message');
     const convo = await Conversation.findById(id);
@@ -121,7 +144,7 @@ router.delete('/:id', requireAuth, async (req, res) => {
     if (!convo) return res.status(404).json({ error: 'not_found' });
 
     // Only allow participants to delete
-    if (!convo.participants.map(String).includes(String(req.user.id))) {
+    if (!convo.participants.map(String).includes(String(currentUser._id))) {
       return res.status(403).json({ error: 'forbidden' });
     }
 
@@ -145,9 +168,12 @@ router.delete('/:id', requireAuth, async (req, res) => {
 // GET /api/conversations/:id
 router.get('/:id', requireAuth, async (req, res) => {
   try {
+    // Get or create current user's MongoDB record
+    const currentUser = await getOrCreateUser(req.user.clerkId, req.user.email);
+    
     const convo = await Conversation.findById(req.params.id);
     if (!convo) return res.status(404).json({ error: 'not_found' });
-    if (!convo.participants.map(String).includes(String(req.user.id))) {
+    if (!convo.participants.map(String).includes(String(currentUser._id))) {
       return res.status(403).json({ error: 'forbidden' });
     }
     return res.json(convo);

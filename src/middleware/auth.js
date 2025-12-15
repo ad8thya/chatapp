@@ -1,32 +1,42 @@
 // src/middleware/auth.js
-// Small auth middleware that uses your utils/jwt.verifyToken helper
-// or falls back to jsonwebtoken.verify if needed.
+const { authenticateRequest } = require('@clerk/backend');
 
-const { verifyToken } = require('../utils/jwt'); // preferred: centralised verify logic
-// fallback: if utils/jwt not present you can uncomment the next line
-// const jwt = require('jsonwebtoken');
-
-module.exports.requireAuth = (req, res, next) => {
-  // DEBUG: show incoming header (helps verify the client actually sent it)
-  console.log('DEBUG incoming auth header ->', req.headers['authorization']);
-
-  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
-  if (!authHeader) return res.status(401).json({ error: 'unauthenticated' });
-
-  const parts = authHeader.split(' ');
-  if (parts.length !== 2 || parts[0] !== 'Bearer') {
-    console.log('DEBUG bad auth format', parts);
-    return res.status(401).json({ error: 'unauthenticated' });
-  }
-
-  const token = parts[1];
+module.exports.requireAuth = async (req, res, next) => {
   try {
-    // Use centralized verification so signing secret / checks are consistent
-    const payload = verifyToken(token); // expect throws on invalid/expired
-    req.user = { id: payload.id, email: payload.email };
-    return next();
-  } catch (e) {
-    console.log('JWT VERIFY FAILED:', e && e.message);
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'unauthenticated' });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const auth = await authenticateRequest({
+      token,
+      secretKey: process.env.CLERK_SECRET_KEY,
+    });
+
+    if (!auth || !auth.userId) {
+      return res.status(401).json({ error: 'unauthenticated' });
+    }
+
+    const email =
+      auth.sessionClaims?.email ||
+      auth.sessionClaims?.primary_email ||
+      auth.sessionClaims?.email_address;
+
+    if (!email) {
+      console.error('JWT claims:', auth.sessionClaims);
+      return res.status(400).json({ error: 'user_email_required' });
+    }
+
+    req.user = {
+      clerkId: auth.userId,
+      email,
+    };
+
+    next();
+  } catch (err) {
+    console.error('Clerk auth error:', err);
     return res.status(401).json({ error: 'unauthenticated' });
   }
 };

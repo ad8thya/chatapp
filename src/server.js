@@ -9,12 +9,11 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 
 const Message = require('./models/Message');
-const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
 const messagesRoutes = require('./routes/messages');
 const attachmentsRoutes = require('./routes/attachments');
 
-const { verifyToken } = require('./utils/jwt');
+const { verifyToken } = require('@clerk/backend');
 
 const app = express();
 
@@ -24,7 +23,6 @@ app.use(express.json());
 app.use(cookieParser());
 
 // API routes
-app.use('/api/auth', authRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/conversations', conversationsRoutes);
 app.use('/api/attachments', attachmentsRoutes);
@@ -36,23 +34,45 @@ const io = new Server(server, { cors: { origin: true, credentials: true } });
 // Make io available to routes via app
 app.set('io', io);
 
-// Socket auth middleware
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token;
-  if (!token) {
-    console.log('Socket connection rejected: no token');
-    return next(new Error('Auth error: token required'));
-  }
+// Socket auth middleware - uses Clerk token verification
+const { authenticateRequest } = require('@clerk/backend');
+
+io.use(async (socket, next) => {
   try {
-    const payload = verifyToken(token);
-    socket.user = payload;
-    console.log('Socket authenticated:', payload.email);
-    return next();
+    const token = socket.handshake.auth?.token;
+    if (!token) return next(new Error('No token'));
+
+    const auth = await authenticateRequest({
+      token,
+      secretKey: process.env.CLERK_SECRET_KEY,
+    });
+
+    if (!auth || !auth.userId) {
+      return next(new Error('Invalid token'));
+    }
+
+    const email =
+      auth.sessionClaims?.email ||
+      auth.sessionClaims?.primary_email ||
+      auth.sessionClaims?.email_address;
+
+    if (!email) {
+      console.error('Socket JWT claims:', auth.sessionClaims);
+      return next(new Error('Email missing in token'));
+    }
+
+    socket.user = {
+      clerkId: auth.userId,
+      email,
+    };
+
+    next();
   } catch (err) {
-    console.log('Socket auth failed:', err.message);
-    return next(new Error('Auth error: invalid token'));
+    console.error('Socket auth failed:', err);
+    next(new Error('Auth failed'));
   }
 });
+
 
 // Socket connection handler
 io.on('connection', (socket) => {
@@ -82,9 +102,13 @@ io.on('connection', (socket) => {
         return cb?.({ ok: false, err: 'ciphertext_or_iv_missing' });
       }
 
+      // Get or create MongoDB User record
+      const { getOrCreateUser } = require('./utils/userHelper');
+      const mongoUser = await getOrCreateUser(socket.user.clerkId, socket.user.email);
+
       const doc = await Message.create({
         conversationId: roomId,
-        fromUserId: socket.user.id,
+        fromUserId: mongoUser._id,
         fromEmail: socket.user.email,
         ciphertext: cText,
         iv: ivText,
@@ -98,7 +122,7 @@ io.on('connection', (socket) => {
       const messagePayload = {
         _id: doc._id,
         conversationId: roomId,
-        fromUserId: socket.user.id,
+        fromUserId: mongoUser._id.toString(),
         fromEmail: socket.user.email,
         ciphertext: cText,
         iv: ivText,
@@ -127,7 +151,7 @@ io.on('connection', (socket) => {
     
     // Broadcast to room (except sender)
     socket.to(conversationId).emit('user_typing', {
-      userId: socket.user.id,
+      userId: socket.user.clerkId,
       email: socket.user.email,
       conversationId
     });
@@ -138,7 +162,7 @@ io.on('connection', (socket) => {
     if (!conversationId) return;
     
     socket.to(conversationId).emit('user_stopped_typing', {
-      userId: socket.user.id,
+      userId: socket.user.clerkId,
       email: socket.user.email,
       conversationId
     });
@@ -150,7 +174,7 @@ io.on('connection', (socket) => {
     socket.rooms.forEach(room => {
       if (room !== socket.id) {
         socket.to(room).emit('presence:update', {
-          userId: socket.user.id,
+          userId: socket.user.clerkId,
           email: socket.user.email,
           status: 'online',
           conversationId: room
@@ -265,8 +289,8 @@ io.on('connection', (socket) => {
     socket.rooms.forEach(room => {
       if (room !== socket.id) {
         socket.to(room).emit('presence:update', {
-          userId: socket.user.id,
-          email: socket.user.email,
+          userId: socket.user?.clerkId,
+          email: socket.user?.email,
           status: 'offline',
           conversationId: room
         });
@@ -279,9 +303,17 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
 
+// Check for required environment variables
+if (!process.env.CLERK_SECRET_KEY) {
+  console.error('✗ ERROR: CLERK_SECRET_KEY is required but not set in environment variables');
+  console.error('   Please set CLERK_SECRET_KEY in your .env file');
+  process.exit(1);
+}
+
 async function startServer() {
   if (!mongoUri) {
     console.warn('⚠ MONGO_URI not set. Starting server WITHOUT DB (dev mode).');
+    console.warn('   Some features will not work without MongoDB.');
     server.listen(PORT, () => {
       console.log('================================================');
       console.log(`Server running WITHOUT DB on port ${PORT}`);
@@ -291,19 +323,38 @@ async function startServer() {
   }
 
   try {
-    await mongoose.connect(mongoUri);
-    console.log('✓ MongoDB connected');
+    console.log('Connecting to MongoDB...');
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 5000,
+    });
+    console.log('✓ MongoDB connected successfully');
+    
+    // Handle MongoDB connection events
+    mongoose.connection.on('error', (err) => {
+      console.error('✗ MongoDB connection error:', err.message);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.warn('⚠ MongoDB disconnected');
+    });
+    
     server.listen(PORT, () => {
       console.log('================================================');
       console.log(`✓ Server listening on port ${PORT}`);
       console.log('✓ Database connected');
+      console.log('✓ Clerk authentication enabled');
       console.log('================================================');
     });
   } catch (err) {
     console.error('✗ MongoDB connect failed:', err.message);
+    console.error('   Please check:');
+    console.error('   1. MongoDB is running');
+    console.error('   2. MONGO_URI is correct in .env file');
+    console.error('   3. Network/firewall allows connection');
     server.listen(PORT, () => {
       console.log('================================================');
       console.log(`Server running WITHOUT DB on port ${PORT}`);
+      console.log('   Some features will not work without MongoDB.');
       console.log('================================================');
     });
   }

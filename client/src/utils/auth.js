@@ -1,32 +1,59 @@
 // client/src/utils/auth.js
-const BASE = 'http://localhost:3000';
+// Centralized authentication token helper
 
-async function safeParse(res) {
-  const text = await res.text();
-  if (!text) return { __empty: true, status: res.status };
-  try { return JSON.parse(text); } catch (e) {
-    return { __raw: text, status: res.status };
+import { useAuth } from '@clerk/clerk-react';
+
+/**
+ * Get authentication token from Clerk
+ * Fails loudly if token cannot be retrieved
+ * @returns {Promise<string>} JWT token
+ * @throws {Error} If token cannot be retrieved
+ */
+export async function getAuthToken(getToken) {
+  if (!getToken) {
+    throw new Error('getToken function not available. User may not be authenticated.');
+  }
+
+  try {
+    const token = await getToken({ template: 'default' });
+    
+    if (!token) {
+      throw new Error('Failed to get authentication token. JWT template "default" may not exist in Clerk dashboard. Please create a JWT template named "default" in your Clerk dashboard under JWT Templates.');
+    }
+    
+    return token;
+  } catch (error) {
+    // Check for specific Clerk errors
+    if (error.message && (
+      error.message.includes('template') || 
+      error.message.includes('No JWT template') ||
+      error.message.includes('jwt_template')
+    )) {
+      throw new Error('JWT template "default" not found. Please create it in your Clerk dashboard:\n1. Go to Clerk Dashboard > JWT Templates\n2. Create a new template named "default"\n3. Add any claims you need (email, userId, etc.)\n4. Save and try again.');
+    }
+    
+    // Re-throw with more context
+    throw new Error(`Failed to get authentication token: ${error.message || error}`);
   }
 }
 
-export async function apiLogin(email, password) {
-  const res = await fetch(BASE + '/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
-  });
-  const body = await safeParse(res);
-  if (!res.ok) throw body;
-  return body;
-}
+/**
+ * Get user email from Clerk user object
+ * Fails loudly if email is missing
+ * @param {Object} user - Clerk user object
+ * @returns {string} User email
+ * @throws {Error} If email is missing
+ */
+export function getUserEmail(user) {
+  if (!user) {
+    throw new Error('User object not available');
+  }
 
-export async function apiRegister(email, password, displayName) {
-  const res = await fetch(BASE + '/api/auth/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, displayName })
-  });
-  const body = await safeParse(res);
-  if (!res.ok) throw body;
-  return body;
+  const email = user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress || null;
+  
+  if (!email) {
+    throw new Error('User email not found in Clerk user object');
+  }
+  
+  return email;
 }

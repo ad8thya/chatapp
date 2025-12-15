@@ -1,59 +1,22 @@
 // client/src/components/Header.jsx
-// UI-only component — no backend changes
-// Header with user avatar, theme toggle, and logout
-
-import React, { useMemo, useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import Avatar from './Avatar';
+// Header with Clerk UserButton, theme toggle
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth, UserButton } from '@clerk/clerk-react';
 import { getTheme, setTheme, initTheme } from '../utils/ui';
 
-function decodeJwt(token) {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1]));
-    return payload;
-  } catch (e) {
-    return null;
-  }
-}
-
 export default function Header() {
-  const nav = useNavigate();
   const [theme, setThemeState] = useState(() => getTheme());
+  const { isSignedIn, user } = useAuth();
   
   useEffect(() => {
     initTheme();
   }, []);
 
-  const token = (() => {
-    try { return localStorage.getItem('TOKEN'); } catch (e) { return null; }
-  })();
-
-  const user = useMemo(() => {
-    if (!token) return null;
-    try {
-      const stored = localStorage.getItem('USER');
-      if (stored) return JSON.parse(stored);
-    } catch {}
-    return decodeJwt(token);
-  }, [token]);
-
-  const email = user?.email || user?.sub || null;
-
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setThemeState(newTheme);
     setTheme(newTheme);
-  };
-
-  const onLogout = () => {
-    try {
-      localStorage.removeItem('TOKEN');
-      localStorage.removeItem('CHAT_KEY');
-      localStorage.removeItem('USER');
-    } catch (e) {}
-    nav('/login', { replace: true });
   };
 
   return (
@@ -66,10 +29,17 @@ export default function Header() {
       </div>
 
       <div className="header-right">
-        {email && (
-          <div className="header-user">
-            <Avatar email={email} name={user?.displayName || user?.name} size={32} />
-            <span className="header-user-email">{email}</span>
+        {isSignedIn && user && (
+          <div className="header-user" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span className="header-user-email">{user.primaryEmailAddress?.emailAddress || user.emailAddresses?.[0]?.emailAddress}</span>
+            <UserButton 
+              afterSignOutUrl="/login"
+              appearance={{
+                elements: {
+                  avatarBox: "w-8 h-8"
+                }
+              }}
+            />
           </div>
         )}
 
@@ -89,16 +59,6 @@ export default function Header() {
             </svg>
           )}
         </button>
-
-        {token && (
-          <button
-            onClick={onLogout}
-            className="btn btn-ghost header-logout"
-            aria-label="Logout"
-          >
-            Logout
-          </button>
-        )}
       </div>
     </header>
   );
